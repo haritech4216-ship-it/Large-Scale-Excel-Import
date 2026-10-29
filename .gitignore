@@ -1,0 +1,46 @@
+# Environment & secrets
+.env
+.env.*
+!.env.example
+*.env
+*.credentials
+.db_credentials
+.mysql84_credentials
+
+# Dependencies
+/backend/vendor/
+/frontend/node_modules/
+node_modules/
+vendor/
+
+# Build artifacts & caches
+/frontend/dist/
+/frontend/.angular/
+/backend/bootstrap/cache/*
+!/backend/bootstrap/cache/.gitignore
+/backend/storage/*.key
+/backend/storage/app/*
+!/backend/storage/app/.gitignore
+/backend/storage/framework/cache/*
+!/backend/storage/framework/cache/.gitignore
+/backend/storage/framework/sessions/*
+!/backend/storage/framework/sessions/.gitignore
+/backend/storage/framework/views/*
+!/backend/storage/framework/views/.gitignore
+/backend/storage/logs/*
+!/backend/storage/logs/.gitignore
+
+# Runtime files
+*.pid
+*.sock
+*.lock
+*.log
+*.sqlite
+
+# IDE & OS
+.idea/
+.vscode/
+*.swp
+*.swo
+.DS_Store
+Thumbs.db
