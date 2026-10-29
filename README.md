@@ -45,10 +45,18 @@ Manage the isolated MySQL instance using the convenience scripts in `scripts/`:
 ```
 
 ### 2. Backend (Laravel 13 API)
-Run using explicit PHP 8.5:
+Run using explicit PHP 8.5 with inline configuration directives to support large spreadsheet uploads up to 100 MB:
 ```bash
 cd backend
-php8.5 artisan serve --port=8000
+php8.5 -d upload_max_filesize=128M -d post_max_size=128M -d memory_limit=512M artisan serve --port=8000
+```
+> **Note on PHP & Web Server Upload Limits:**
+> Default system PHP CLI and SAPI settings (`/etc/php/8.5/cli/php.ini`) default to `upload_max_filesize = 2M` and `post_max_size = 8M`. To preserve system packages and avoid global changes, pass the `-d` directives when starting the development server. When using Nginx, Apache, or PHP-FPM in staging or production, ensure `client_max_body_size 128M;`, `upload_max_filesize = 128M`, and `post_max_size = 128M` are configured accordingly.
+
+Run the queue worker daemon to process background import jobs:
+```bash
+cd backend
+php8.5 artisan queue:work --queue=default --timeout=3600 --tries=3
 ```
 Run tests:
 ```bash

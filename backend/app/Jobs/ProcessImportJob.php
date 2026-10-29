@@ -162,15 +162,44 @@ class ProcessImportJob implements ShouldQueue
         } catch (Throwable $e) {
             Log::error("ProcessImportJob error on Import [{$import->id}]: ".$e->getMessage());
 
-            $import->refresh();
-            $import->update([
-                'status' => Import::STATUS_FAILED,
-                'failure_reason' => $this->sanitizeErrorMessage($e->getMessage()),
-                'completed_at' => now(),
-            ]);
+            // If running synchronously outside a queue, or if maximum queue attempts are exhausted,
+            // mark the import failed immediately. Otherwise, leave status as Processing for retry.
+            if ($this->job === null || $this->attempts() >= $this->tries) {
+                $this->markImportFailed($import, $e);
+            }
 
             throw $e;
         }
+    }
+
+    /**
+     * Handle a job failure after all queue attempts have been exhausted.
+     */
+    public function failed(?Throwable $exception): void
+    {
+        $import = Import::find($this->importId);
+        if (! $import) {
+            return;
+        }
+
+        $this->markImportFailed($import, $exception);
+
+        Log::error("ProcessImportJob: Import [{$this->importId}] marked as Failed in failed() lifecycle hook.");
+    }
+
+    /**
+     * Mark an import as failed with sanitized error details.
+     */
+    protected function markImportFailed(Import $import, ?Throwable $exception): void
+    {
+        $message = $exception ? $exception->getMessage() : 'Import processing failed after maximum attempts.';
+
+        $import->refresh();
+        $import->update([
+            'status' => Import::STATUS_FAILED,
+            'failure_reason' => $this->sanitizeErrorMessage($message),
+            'completed_at' => now(),
+        ]);
     }
 
     /**
@@ -275,6 +304,7 @@ class ProcessImportJob implements ShouldQueue
 
         // 4. In-database duplicate detection for valid candidates
         $customersToInsert = [];
+        $rowNumberMap = []; // customer_id => physical Excel row number
         if (! empty($validCandidates)) {
             $candidateIds = array_keys($validCandidates);
             $existingDbIds = Customer::whereIn('customer_id', $candidateIds)
@@ -283,6 +313,8 @@ class ProcessImportJob implements ShouldQueue
                 ->all();
 
             foreach ($validCandidates as $cid => $candidate) {
+                $rowNumberMap[$cid] = $candidate['excel_row'];
+
                 if (isset($existingDbIds[$cid])) {
                     $rowErrors[] = [
                         'import_id' => $import->id,
@@ -302,22 +334,17 @@ class ProcessImportJob implements ShouldQueue
             }
         }
 
-        $savedCount = count($customersToInsert);
-        $rejectedCount = count($rowErrors);
-        $processedCount = $savedCount + $rejectedCount;
-
         // 5. Persist chunk changes, errors, and counters inside a single transaction
         DB::transaction(function () use (
             $import,
             $chunk,
             $customersToInsert,
             $rowErrors,
-            $processedCount
-
+            $rowNumberMap
         ) {
             // Bulk insert valid customer records with race condition fallback
             if (! empty($customersToInsert)) {
-                $this->insertCustomersSafely($customersToInsert, $import->id, $rowErrors);
+                $this->insertCustomersSafely($customersToInsert, $import->id, $rowErrors, $rowNumberMap);
             }
 
             // Bulk insert row errors
@@ -328,19 +355,23 @@ class ProcessImportJob implements ShouldQueue
                 }
             }
 
+            $savedCount = count($customersToInsert);
+            $rejectedCount = count($rowErrors);
+            $processedCount = $savedCount + $rejectedCount;
+
             // Update chunk status to completed
             $chunk->update([
                 'status' => ImportChunk::STATUS_COMPLETED,
                 'processed_rows' => $processedCount,
-                'saved_rows' => count($customersToInsert),
-                'rejected_rows' => count($rowErrors),
+                'saved_rows' => $savedCount,
+                'rejected_rows' => $rejectedCount,
                 'completed_at' => now(),
             ]);
 
             // Increment parent import counters atomically
             $import->increment('processed_rows', $processedCount);
-            $import->increment('saved_rows', count($customersToInsert));
-            $import->increment('rejected_rows', count($rowErrors));
+            $import->increment('saved_rows', $savedCount);
+            $import->increment('rejected_rows', $rejectedCount);
         });
     }
 
@@ -348,44 +379,58 @@ class ProcessImportJob implements ShouldQueue
      * Safely insert customers with duplicate-key race fallback.
      *
      * @param  array<int, array>  $customers
+     * @param  array<int, array>  $rowErrors
+     * @param  array<string, int>  $rowNumberMap  Map of customer_id => physical Excel row number
      */
-    protected function insertCustomersSafely(array &$customers, int $importId, array &$rowErrors): void
-    {
-        try {
-            foreach (array_chunk($customers, 500) as $batch) {
-                Customer::insert($batch);
-            }
-        } catch (QueryException $e) {
-            // Check for duplicate key violation (MySQL error 1062)
-            if ($e->errorInfo[1] === 1062 || str_contains($e->getMessage(), 'Duplicate entry')) {
-                Log::warning("ProcessImportJob: Concurrent duplicate key race detected on import [{$importId}]. Falling back to row-by-row insertion.");
+    protected function insertCustomersSafely(
+        array &$customers,
+        int $importId,
+        array &$rowErrors,
+        array $rowNumberMap = []
+    ): void {
+        $savedCustomers = [];
 
-                $successful = [];
-                foreach ($customers as $record) {
-                    try {
-                        Customer::create($record);
-                        $successful[] = $record;
-                    } catch (QueryException $rowEx) {
-                        if ($rowEx->errorInfo[1] === 1062 || str_contains($rowEx->getMessage(), 'Duplicate entry')) {
-                            $cid = $record['customer_id'];
-                            $rowErrors[] = [
-                                'import_id' => $importId,
-                                'excel_row' => 0,
-                                'customer_id' => $cid,
-                                'rejection_reason' => "Customer ID '{$cid}' was inserted concurrently in another process.",
-                                'created_at' => now(),
-                                'updated_at' => now(),
-                            ];
-                        } else {
-                            throw $rowEx;
+        // Process in bounded sub-batches of 500 to adhere to SQL parameter limits
+        foreach (array_chunk($customers, 500) as $batchIndex => $batch) {
+            try {
+                Customer::insert($batch);
+                $savedCustomers = array_merge($savedCustomers, $batch);
+            } catch (QueryException $e) {
+                // Check for duplicate key violation (MySQL error 1062)
+                if ($e->errorInfo[1] === 1062 || str_contains($e->getMessage(), 'Duplicate entry')) {
+                    Log::warning("ProcessImportJob: Concurrent duplicate key race detected on import [{$importId}], sub-batch [{$batchIndex}]. Falling back to row-by-row insertion for conflicting sub-batch.");
+
+                    // Fall back to row-by-row insertion ONLY for records in this failed sub-batch
+                    foreach ($batch as $record) {
+                        try {
+                            Customer::create($record);
+                            $savedCustomers[] = $record;
+                        } catch (QueryException $rowEx) {
+                            if ($rowEx->errorInfo[1] === 1062 || str_contains($rowEx->getMessage(), 'Duplicate entry')) {
+                                $cid = $record['customer_id'];
+                                $excelRow = $rowNumberMap[$cid] ?? 0;
+
+                                $rowErrors[] = [
+                                    'import_id' => $importId,
+                                    'excel_row' => $excelRow,
+                                    'customer_id' => $cid,
+                                    'rejection_reason' => "Customer ID '{$cid}' was inserted concurrently in another process.",
+                                    'created_at' => now(),
+                                    'updated_at' => now(),
+                                ];
+                            } else {
+                                throw $rowEx;
+                            }
                         }
                     }
+                } else {
+                    throw $e;
                 }
-                $customers = $successful;
-            } else {
-                throw $e;
             }
         }
+
+        // Update the reference array so callers reflect the actual successfully inserted customers
+        $customers = $savedCustomers;
     }
 
     /**

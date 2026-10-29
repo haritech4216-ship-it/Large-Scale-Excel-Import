@@ -96,13 +96,14 @@ Rather than loading an entire 500,000-row workbook into memory (which causes PHP
    Before inserting valid candidates, existing IDs are queried:
    `Customer::whereIn('customer_id', $candidateIds)->pluck('customer_id')`.
    Matches are recorded as row errors: `"Customer ID '{id}' already exists in database."`
-3. **Database Race Protection:**
-   The `customers.customer_id` unique constraint guarantees zero database-level duplicates even under concurrent worker executions. In the event of a concurrent race, the engine falls back to row-by-row insertion within the chunk to save all non-conflicting rows without crashing.
+3. **Database Race Protection & Sub-Batch Isolation:**
+   The `customers.customer_id` unique constraint guarantees zero database-level duplicates even under concurrent worker executions. To adhere to SQL parameter boundaries, candidate rows are grouped into 500-row sub-batches. If a concurrent worker inserts a customer ID that collides with a record in a later sub-batch (MySQL error 1062), only that specific conflicting sub-batch falls back to row-by-row insertion. Earlier successful sub-batches remain safely persisted in the transaction without re-execution or false rejections. Every recorded conflict preserves its exact 1-based physical Excel row number (never row 0).
 
 ### Idempotency & Retry Safety
 * Chunks are tracked in `import_chunks` with a unique index on `(import_id, chunk_number)`.
 * If a worker is retried after a partial failure, already completed chunks (`status === 'completed'`) are recognized and bypassed immediately, preventing duplicate customer inserts or duplicate progress counter increments.
 * Uncommitted chunks rollback completely upon transaction failure, leaving the database state pristine for the next retry attempt.
+* **Queue Lifecycle Handling:** Non-terminal retryable exceptions caught during worker attempts leave the import in `Processing` so status does not flutter prematurely to `Failed`. Terminal transitions to `Failed` occur only after all `$tries` (3) are exhausted via the `failed()` lifecycle hook or upon non-retryable fatal faults.
 
 ---
 
@@ -158,10 +159,37 @@ Rather than loading an entire 500,000-row workbook into memory (which causes PHP
 
 ---
 
-## 6. Worker Commands
+## 6. Runtime & Worker Commands
 
+### Development Server with Inline Directives
+Because system-level PHP ini settings default to `upload_max_filesize = 2M` and `post_max_size = 8M`, pass the following inline configuration directives when launching the development server to accept the configured 100 MB upload limit:
+```bash
+cd backend
+php8.5 -d upload_max_filesize=128M -d post_max_size=128M -d memory_limit=512M artisan serve --port=8000
+```
+
+### Production / Staging Web Server Limits
+When serving via Nginx, Apache, or PHP-FPM, align web server thresholds to avoid HTTP 413 or payload truncation before Laravel receives the request:
+* **Nginx:** `client_max_body_size 128M;`
+* **PHP-FPM / `php.ini`:** `upload_max_filesize = 128M`, `post_max_size = 128M`, `memory_limit = 512M`
+
+### Queue Worker Daemon
 Run the database queue worker for processing imports:
 ```bash
 cd backend
 php8.5 artisan queue:work --queue=default --timeout=3600 --tries=3
 ```
+
+---
+
+## 7. Security & Crash Recovery Notes
+
+### API Access Protection (Scope Condition)
+* All `/api/imports/*` endpoints currently lack authentication and authorization middleware.
+* Per Phase 3 safety constraints, no ad-hoc authentication system was introduced.
+* **Smallest Compatible Solution:** Introduce `laravel/sanctum` for SPA cookie-based session authentication or API token authentication (`auth:sanctum`).
+* **Security Notice:** The unauthenticated endpoints are strictly for internal development verification and MUST NOT be exposed to untrusted networks or production environments until protected.
+
+### Crash Recovery Strategy (Proposed)
+* If a queue worker process terminates abnormally (`SIGKILL`, host reboot, or OOM killer), userland exception handlers do not run, leaving in-flight imports in `Processing`.
+* **Minimal Proposed Solution for Approval:** A lightweight scheduled artisan command (e.g. `php artisan import:recover-stale`) that queries imports with `status = 'Processing'` whose `updated_at` exceeds the job timeout (3600s) and whose associated job ID is no longer active in the `jobs` table, marking them `Failed` with reason `"Worker process terminated unexpectedly."`

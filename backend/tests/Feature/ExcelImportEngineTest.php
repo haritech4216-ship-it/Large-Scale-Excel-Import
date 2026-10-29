@@ -9,9 +9,13 @@ use App\Models\ImportChunk;
 use App\Models\ImportRowError;
 use App\Services\CustomerRowValidator;
 use App\Services\ExcelParserService;
+use Illuminate\Contracts\Queue\Job;
 use Illuminate\Foundation\Testing\DatabaseTransactions;
 use Illuminate\Http\File;
+use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Storage;
+use Mockery;
+use RuntimeException;
 use Tests\CreatesXlsxFiles;
 use Tests\TestCase;
 
@@ -333,5 +337,226 @@ class ExcelImportEngineTest extends TestCase
         if (file_exists($localFile)) {
             unlink($localFile);
         }
+    }
+
+    public function test_concurrent_duplicate_conflict_in_later_sub_batch_does_not_reject_earlier_sub_batch(): void
+    {
+        config(['excel_import.chunk_size' => 600]);
+
+        // Generate 520 rows: 500 rows for sub-batch 1, 20 rows for sub-batch 2
+        $rows = [];
+        for ($i = 1; $i <= 520; $i++) {
+            $rows[] = [
+                "CUST_MULTI_{$i}",
+                'User',
+                "Test{$i}",
+                "user{$i}@example.com",
+                '+1-555-0100',
+                '1990-01-01',
+                'Male',
+                'Engineer',
+                'Acme',
+                'USA',
+                'NY',
+                '123 Street',
+                '',
+                '2024-01-01',
+                'Active',
+            ];
+        }
+
+        [$import, $localFile] = $this->createImportWithRows($rows);
+
+        // Simulate concurrent insertion of CUST_MULTI_510 (row in sub-batch 2) right after the pre-check query runs
+        $injected = false;
+        DB::listen(function ($query) use (&$injected) {
+            if (! $injected && str_contains(strtolower($query->sql), 'from `customers` where `customer_id` in')) {
+                $injected = true;
+                Customer::create([
+                    'customer_id' => 'CUST_MULTI_510',
+                    'first_name' => 'Concurrent',
+                    'last_name' => 'Winner',
+                    'email' => 'winner@example.com',
+                    'phone_number' => '+1-555-9999',
+                    'date_of_birth' => '1985-05-05',
+                    'profession' => 'Architect',
+                    'country' => 'USA',
+                    'city' => 'NY',
+                    'registration_date' => '2023-01-01',
+                    'status' => 'Active',
+                ]);
+            }
+        });
+
+        $job = new ProcessImportJob($import->id);
+        $job->handle($this->parserService, $this->rowValidator);
+
+        $import->refresh();
+
+        // 520 total rows: 519 inserted successfully, 1 rejected due to race condition conflict
+        $this->assertSame(520, $import->total_rows);
+        $this->assertSame(520, $import->processed_rows);
+        $this->assertSame(519, $import->saved_rows);
+        $this->assertSame(1, $import->rejected_rows);
+        $this->assertSame(Import::STATUS_COMPLETED_WITH_ERRORS, $import->status);
+
+        // Check that records from Sub-batch 1 (1 to 500) are ALL saved in DB and NOT rejected
+        $this->assertSame(1, Customer::where('customer_id', 'CUST_MULTI_1')->count());
+        $this->assertSame(1, Customer::where('customer_id', 'CUST_MULTI_500')->count());
+
+        // Check that records from Sub-batch 2 are also saved (except the conflicting one)
+        $this->assertSame(1, Customer::where('customer_id', 'CUST_MULTI_501')->count());
+        $this->assertSame(1, Customer::where('customer_id', 'CUST_MULTI_520')->count());
+
+        // Verify the single error recorded
+        $errors = ImportRowError::where('import_id', $import->id)->get();
+        $this->assertCount(1, $errors);
+        $error = $errors->first();
+        $this->assertSame('CUST_MULTI_510', $error->customer_id);
+        // Physical Excel row: row 1 is header, so row 510 in data array is physical row 511
+        $this->assertSame(511, $error->excel_row);
+        $this->assertNotSame(0, $error->excel_row);
+        $this->assertStringContainsString("Customer ID 'CUST_MULTI_510' was inserted concurrently in another process.", $error->rejection_reason);
+
+        if (file_exists($localFile)) {
+            unlink($localFile);
+        }
+    }
+
+    public function test_duplicate_race_error_always_records_physical_excel_row_number_never_zero(): void
+    {
+        [$import, $localFile] = $this->createImportWithRows([
+            ['CUST_RACE_1', 'One', 'User', 'one@example.com', '+1-555-0001', '1990-01-01', '', 'Dev', '', 'USA', 'NY', '', '', '2023-01-01', 'Active'],
+            ['CUST_RACE_2', 'Two', 'User', 'two@example.com', '+1-555-0002', '1990-01-01', '', 'Dev', '', 'USA', 'NY', '', '', '2023-01-01', 'Active'],
+        ]);
+
+        // Inject CUST_RACE_2 concurrently
+        $injected = false;
+        DB::listen(function ($query) use (&$injected) {
+            if (! $injected && str_contains(strtolower($query->sql), 'from `customers` where `customer_id` in')) {
+                $injected = true;
+                Customer::create([
+                    'customer_id' => 'CUST_RACE_2',
+                    'first_name' => 'Existing',
+                    'last_name' => 'Race',
+                    'email' => 'race@example.com',
+                    'phone_number' => '+1-555-0000',
+                    'date_of_birth' => '1990-01-01',
+                    'profession' => 'Dev',
+                    'country' => 'USA',
+                    'city' => 'NY',
+                    'registration_date' => '2023-01-01',
+                    'status' => 'Active',
+                ]);
+            }
+        });
+
+        $job = new ProcessImportJob($import->id);
+        $job->handle($this->parserService, $this->rowValidator);
+
+        $error = ImportRowError::where('import_id', $import->id)->first();
+        $this->assertNotNull($error);
+        $this->assertSame('CUST_RACE_2', $error->customer_id);
+        $this->assertSame(3, $error->excel_row); // Row 1 header, Row 2 CUST_RACE_1, Row 3 CUST_RACE_2
+        $this->assertNotSame(0, $error->excel_row);
+
+        if (file_exists($localFile)) {
+            unlink($localFile);
+        }
+    }
+
+    public function test_retryable_job_failure_does_not_mark_import_failed_before_retries_exhausted(): void
+    {
+        $storedPath = 'imports/test_retry.xlsx';
+        Storage::disk('local')->put($storedPath, 'dummy binary content');
+
+        $import = Import::create([
+            'filename' => 'test.xlsx',
+            'file_path' => $storedPath,
+            'status' => Import::STATUS_QUEUED,
+        ]);
+
+        $job = new ProcessImportJob($import->id);
+
+        // Mock an active queue job on attempt 1 of 3
+        $mockQueueJob = Mockery::mock(Job::class);
+        $mockQueueJob->shouldReceive('attempts')->andReturn(1);
+        $job->setJob($mockQueueJob);
+
+        // Mock parser service to throw transient error during handle
+        $mockParser = Mockery::mock(ExcelParserService::class);
+        $mockParser->shouldReceive('validateHeaders')->andThrow(new RuntimeException('Transient lock wait timeout'));
+
+        // Job should re-throw exception without marking the import permanently failed
+        try {
+            $job->handle($mockParser, $this->rowValidator);
+            $this->fail('Expected RuntimeException was not thrown.');
+        } catch (RuntimeException $e) {
+            $this->assertSame('Transient lock wait timeout', $e->getMessage());
+        }
+
+        $import->refresh();
+
+        // Import must remain in active Processing state, NOT Failed
+        $this->assertSame(Import::STATUS_PROCESSING, $import->status);
+        $this->assertNull($import->failure_reason);
+        $this->assertNull($import->completed_at);
+    }
+
+    public function test_final_job_failure_on_exhausted_retries_marks_import_as_failed(): void
+    {
+        $storedPath = 'imports/test_final.xlsx';
+        Storage::disk('local')->put($storedPath, 'dummy binary content');
+
+        $import = Import::create([
+            'filename' => 'test.xlsx',
+            'file_path' => $storedPath,
+            'status' => Import::STATUS_QUEUED,
+        ]);
+
+        $job = new ProcessImportJob($import->id);
+
+        // Mock an active queue job on final attempt 3 of 3
+        $mockQueueJob = Mockery::mock(Job::class);
+        $mockQueueJob->shouldReceive('attempts')->andReturn(3);
+        $job->setJob($mockQueueJob);
+
+        $mockParser = Mockery::mock(ExcelParserService::class);
+        $mockParser->shouldReceive('validateHeaders')->andThrow(new RuntimeException('Permanent parse error on host=127.0.0.1 user=excel_user password=secret123'));
+
+        try {
+            $job->handle($mockParser, $this->rowValidator);
+            $this->fail('Expected RuntimeException was not thrown.');
+        } catch (RuntimeException $e) {
+            $this->assertStringContainsString('Permanent parse error', $e->getMessage());
+        }
+
+        $import->refresh();
+
+        // Terminal attempt marks import as Failed with sanitized error
+        $this->assertSame(Import::STATUS_FAILED, $import->status);
+        $this->assertNotNull($import->completed_at);
+        $this->assertNotNull($import->failure_reason);
+        $this->assertStringNotContainsString('password=secret123', $import->failure_reason);
+        $this->assertStringContainsString('[redacted]', $import->failure_reason);
+    }
+
+    public function test_failed_hook_marks_import_failed_with_sanitized_reason(): void
+    {
+        $import = Import::create([
+            'filename' => 'hook_test.xlsx',
+            'file_path' => 'imports/hook.xlsx',
+            'status' => Import::STATUS_PROCESSING,
+        ]);
+
+        $job = new ProcessImportJob($import->id);
+        $job->failed(new RuntimeException('Worker killed due to max memory /home/harishankar/server'));
+
+        $import->refresh();
+
+        $this->assertSame(Import::STATUS_FAILED, $import->status);
+        $this->assertNotNull($import->completed_at);
+        $this->assertStringContainsString('Worker killed due to max memory [server-path]', $import->failure_reason);
+        $this->assertStringNotContainsString('/home/harishankar', $import->failure_reason);
     }
 }
