@@ -1,0 +1,56 @@
+<section class="section-card" style="max-width: 440px; margin: 40px auto; padding: 32px;">
+  <div style="text-align: center; margin-bottom: 24px;">
+    <div style="font-size: 32px; margin-bottom: 8px;">🔐</div>
+    <h2 class="section-title" style="margin-bottom: 6px;">Sign In to Excel Importer</h2>
+    <p class="section-subtitle">Authenticated and authorized access required</p>
+  </div>
+
+  @if (loginError()) {
+    <div class="alert alert-danger" style="margin-bottom: 16px;">
+      {{ loginError() }}
+    </div>
+  }
+
+  <form (ngSubmit)="onLogin()" style="display: flex; flex-direction: column; gap: 16px;">
+    <div>
+      <label for="login-email" style="display: block; font-size: 13px; font-weight: 500; margin-bottom: 6px; color: #cbd5e1;">Email</label>
+      <input
+        id="login-email"
+        type="email"
+        class="form-control"
+        style="width: 100%; box-sizing: border-box; padding: 10px 12px; background: #0f172a; border: 1px solid #334155; border-radius: 6px; color: #f8fafc; font-size: 14px;"
+        [ngModel]="loginEmail()"
+        (ngModelChange)="loginEmail.set($event)"
+        name="email"
+        required
+      />
+    </div>
+
+    <div>
+      <label for="login-password" style="display: block; font-size: 13px; font-weight: 500; margin-bottom: 6px; color: #cbd5e1;">Password</label>
+      <input
+        id="login-password"
+        type="password"
+        class="form-control"
+        style="width: 100%; box-sizing: border-box; padding: 10px 12px; background: #0f172a; border: 1px solid #334155; border-radius: 6px; color: #f8fafc; font-size: 14px;"
+        [ngModel]="loginPassword()"
+        (ngModelChange)="loginPassword.set($event)"
+        name="password"
+        required
+      />
+    </div>
+
+    <button
+      type="submit"
+      class="btn btn-primary btn-lg"
+      style="width: 100%; justify-content: center; margin-top: 8px;"
+      [disabled]="isLoggingIn()"
+    >
+      @if (isLoggingIn()) {
+        Signing In...
+      } @else {
+        Sign In
+      }
+    </button>
+  </form>
+</section>

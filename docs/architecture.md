@@ -184,11 +184,11 @@ php8.5 artisan queue:work --queue=default --timeout=3600 --tries=3
 
 ## 7. Security & Crash Recovery Notes
 
-### API Access Protection (Scope Condition)
-* All `/api/imports/*` endpoints currently lack authentication and authorization middleware.
-* Per Phase 3 safety constraints, no ad-hoc authentication system was introduced.
-* **Smallest Compatible Solution:** Introduce `laravel/sanctum` for SPA cookie-based session authentication or API token authentication (`auth:sanctum`).
-* **Security Notice:** The unauthenticated endpoints are strictly for internal development verification and MUST NOT be exposed to untrusted networks or production environments until protected.
+### API Authentication & Authorization (Phase 6)
+* All `/api/imports/*` endpoints are protected by `auth:sanctum` middleware requiring a valid Bearer token.
+* Strict user ownership is enforced on all import operations (`index`, `show`, `errors`, `downloadErrorsCsv`): users can only view, query, or download their own imports.
+* Public endpoints are limited to authentication: `POST /api/auth/login`. Authenticated session endpoints include `POST /api/auth/logout` and `GET /api/auth/me`.
+* A complete OpenAPI 3.0 specification is available at `docs/openapi.yaml`.
 
 ### Crash Recovery Strategy (Proposed)
 * If a queue worker process terminates abnormally (`SIGKILL`, host reboot, or OOM killer), userland exception handlers do not run, leaving in-flight imports in `Processing`.

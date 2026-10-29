@@ -51,6 +51,10 @@ export class ImportModalComponent implements OnInit, OnDestroy {
   readonly isDownloadingCsv = signal(false);
   readonly csvDownloadError = signal<string | null>(null);
 
+  // Template download state
+  readonly isDownloadingTemplate = signal<boolean>(false);
+  readonly templateDownloadError = signal<string | null>(null);
+
   private pollSubscription?: Subscription;
   private isPollingActive = false;
 
@@ -289,6 +293,31 @@ export class ImportModalComponent implements OnInit, OnDestroy {
     });
   }
 
+  downloadSampleTemplate(): void {
+    if (this.isDownloadingTemplate()) {
+      return;
+    }
+
+    this.isDownloadingTemplate.set(true);
+    this.templateDownloadError.set(null);
+
+    this.api.downloadSampleTemplate().subscribe({
+      next: (blob) => {
+        this.isDownloadingTemplate.set(false);
+        const url = window.URL.createObjectURL(blob);
+        const anchor = document.createElement('a');
+        anchor.href = url;
+        anchor.download = 'sample_import_template.xlsx';
+        anchor.click();
+        window.URL.revokeObjectURL(url);
+      },
+      error: () => {
+        this.isDownloadingTemplate.set(false);
+        this.templateDownloadError.set('Failed to download sample template.');
+      },
+    });
+  }
+
   close(): void {
     this.stopPolling();
     this.closed.emit();
@@ -319,5 +348,78 @@ export class ImportModalComponent implements OnInit, OnDestroy {
       default:
         return 'status-default';
     }
+  }
+
+  getStageStatusClass(stage: 'upload' | 'validation' | 'import'): string {
+    const detail = this.importDetail();
+    if (!detail) return 'stage-pending';
+
+    const stageData = detail.stages?.[stage];
+    const status = stageData?.status;
+
+    if (stage === 'upload') return 'stage-completed';
+
+    if (status === 'completed') return 'stage-completed';
+    if (status === 'processing') return 'stage-active';
+    if (status === 'failed') return 'stage-failed';
+    return 'stage-pending';
+  }
+
+  getValidationBadgeText(): string {
+    const detail = this.importDetail();
+    if (!detail) return 'Waiting';
+    if (detail.status === 'Queued') return 'Queued';
+    if (detail.status === 'Failed') return 'Failed';
+
+    const valStage = detail.stages?.validation;
+    if (detail.status === 'Completed' || detail.status === 'Completed with Errors') {
+      return '100% Verified';
+    }
+
+    if (valStage?.indeterminate) {
+      return 'Scanning Rows...';
+    }
+
+    return `${valStage?.percentage ?? 0}%`;
+  }
+
+  getValidationBadgeClass(): string {
+    const detail = this.importDetail();
+    if (!detail) return 'badge-queued';
+    if (detail.status === 'Queued') return 'badge-queued';
+    if (detail.status === 'Failed') return 'badge-failed';
+    if (detail.status === 'Completed' || detail.status === 'Completed with Errors') {
+      return 'badge-completed';
+    }
+    return 'badge-processing';
+  }
+
+  getImportBadgeText(): string {
+    const detail = this.importDetail();
+    if (!detail) return 'Waiting';
+    if (detail.status === 'Queued') return 'Waiting';
+    if (detail.status === 'Failed') return 'Failed';
+
+    const impStage = detail.stages?.import;
+    if (detail.status === 'Completed' || detail.status === 'Completed with Errors') {
+      return '100% Saved';
+    }
+
+    if (impStage?.indeterminate) {
+      return 'Preparing...';
+    }
+
+    return `${impStage?.percentage ?? 0}%`;
+  }
+
+  getImportBadgeClass(): string {
+    const detail = this.importDetail();
+    if (!detail) return 'badge-queued';
+    if (detail.status === 'Queued') return 'badge-queued';
+    if (detail.status === 'Failed') return 'badge-failed';
+    if (detail.status === 'Completed' || detail.status === 'Completed with Errors') {
+      return 'badge-completed';
+    }
+    return 'badge-processing';
   }
 }

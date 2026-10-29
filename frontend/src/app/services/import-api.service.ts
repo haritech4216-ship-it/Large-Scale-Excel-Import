@@ -65,4 +65,10 @@ export class ImportApiService {
       responseType: 'blob',
     });
   }
+
+  downloadSampleTemplate(): Observable<Blob> {
+    return this.http.get(`${this.baseUrl}/imports/sample-template`, {
+      responseType: 'blob',
+    });
+  }
 }

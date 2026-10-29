@@ -10,151 +10,27 @@
           <p class="brand-subtitle">Asynchronous high-volume spreadsheet importer (up to 500,000 rows)</p>
         </div>
       </div>
-      <button type="button" class="btn btn-primary btn-lg" (click)="openUploadModal()">
-        <span>+ Upload Spreadsheet</span>
-      </button>
+      <div class="header-actions" style="display: flex; align-items: center; gap: 12px;">
+        @if (auth.isAuthenticated()) {
+          <div class="user-pill" style="display: flex; align-items: center; gap: 8px; background: rgba(255,255,255,0.06); padding: 6px 12px; border-radius: 6px; font-size: 13px;">
+            <span style="color: #94a3b8;">User:</span>
+            <span style="font-weight: 500; color: #f8fafc;">{{ auth.currentUser()?.email || 'Authenticated' }}</span>
+            <button type="button" class="btn btn-secondary btn-sm" (click)="onLogout()" style="margin-left: 6px;">
+              Sign Out
+            </button>
+          </div>
+          <button type="button" class="btn btn-primary btn-lg" (click)="openUploadModal()">
+            <span>+ Upload Spreadsheet</span>
+          </button>
+        }
+      </div>
     </div>
   </header>
 
-  <!-- Main Content Container -->
+  <!-- Main Content Container with Router Outlet -->
   <main class="main-content">
     <div class="content-container">
-
-      <!-- Section: History Header & Controls -->
-      <section class="section-card">
-        <div class="section-header">
-          <div>
-            <h2 class="section-title">Import History</h2>
-            <p class="section-subtitle">Real-time status, processing duration, and error reports for past imports.</p>
-          </div>
-          <div class="section-actions">
-            <button 
-              type="button" 
-              class="btn btn-secondary btn-sm" 
-              (click)="loadHistory()" 
-              [disabled]="isLoadingHistory()"
-            >
-              @if (isLoadingHistory()) {
-                Refreshing...
-              } @else {
-                ↻ Refresh History
-              }
-            </button>
-          </div>
-        </div>
-
-        <!-- Connection Error Alert -->
-        @if (historyError()) {
-          <div class="alert alert-danger">
-            <strong>Connection Notice:</strong> {{ historyError() }}
-          </div>
-        }
-
-        <!-- History Data Table -->
-        <div class="table-responsive">
-          <table class="data-table">
-            <thead>
-              <tr>
-                <th style="width: 70px;">ID</th>
-                <th>Spreadsheet File</th>
-                <th style="width: 170px;">Status</th>
-                <th class="text-right" style="width: 100px;">Total Rows</th>
-                <th class="text-right" style="width: 100px;">Saved</th>
-                <th class="text-right" style="width: 100px;">Rejected</th>
-                <th class="text-right" style="width: 110px;">Duration</th>
-                <th style="width: 180px;">Created</th>
-                <th class="text-center" style="width: 130px;">Action</th>
-              </tr>
-            </thead>
-            <tbody>
-              @if (isLoadingHistory()) {
-                <tr>
-                  <td colspan="9" class="state-cell">
-                    <div class="spinner"></div>
-                    <span>Loading import records from server...</span>
-                  </td>
-                </tr>
-              } @else if (importsData()?.data?.length) {
-                @for (item of importsData()?.data; track item.id) {
-                  <tr class="history-row" (click)="openDetailModal(item.id)">
-                    <td class="font-mono text-muted">#{{ item.id }}</td>
-                    <td class="font-semibold">{{ item.filename }}</td>
-                    <td>
-                      <span class="status-badge" [ngClass]="getStatusClass(item.status)">
-                        {{ item.status }}
-                      </span>
-                    </td>
-                    <td class="text-right font-mono">{{ item.total_rows | number }}</td>
-                    <td class="text-right font-mono text-success">{{ item.saved_rows | number }}</td>
-                    <td class="text-right font-mono text-warning">
-                      @if (item.rejected_rows > 0) {
-                        <strong>{{ item.rejected_rows | number }}</strong>
-                      } @else {
-                        0
-                      }
-                    </td>
-                    <td class="text-right font-mono text-muted">
-                      {{ item.duration_seconds !== null ? (item.duration_seconds + 's') : '-' }}
-                    </td>
-                    <td class="text-muted font-sm">
-                      {{ item.created_at | date:'medium' }}
-                    </td>
-                    <td class="text-center" (click)="$event.stopPropagation()">
-                      <button 
-                        type="button" 
-                        class="btn btn-sm btn-outline-primary"
-                        (click)="openDetailModal(item.id)"
-                      >
-                        View Details
-                      </button>
-                    </td>
-                  </tr>
-                }
-              } @else {
-                <tr>
-                  <td colspan="9" class="state-cell empty-state">
-                    <span class="empty-icon">📁</span>
-                    <p class="empty-title">No spreadsheets imported yet.</p>
-                    <p class="empty-hint">Click <strong>Upload Spreadsheet</strong> above to start your first asynchronous import.</p>
-                  </td>
-                </tr>
-              }
-            </tbody>
-          </table>
-        </div>
-
-        <!-- History Pagination Footer -->
-        @if (importsData() && importsData()!.total > 0) {
-          <div class="history-footer">
-            <span class="pagination-info">
-              Showing <strong>{{ importsData()?.from }}</strong> to <strong>{{ importsData()?.to }}</strong> of <strong>{{ importsData()?.total }}</strong> imports
-            </span>
-            <div class="pagination-controls">
-              <button 
-                type="button" 
-                class="btn btn-sm btn-secondary" 
-                [disabled]="importsData()?.current_page === 1"
-                (click)="loadHistory(importsData()!.current_page - 1)"
-              >
-                &laquo; Previous
-              </button>
-              <span class="page-indicator">
-                Page {{ importsData()?.current_page }} of {{ importsData()?.last_page }}
-              </span>
-              <button 
-                type="button" 
-                class="btn btn-sm btn-secondary" 
-                [disabled]="importsData()?.current_page === importsData()?.last_page"
-                (click)="loadHistory(importsData()!.current_page + 1)"
-              >
-                Next &raquo;
-              </button>
-            </div>
-          </div>
-        }
-
-      </section>
-
+      <router-outlet></router-outlet>
     </div>
   </main>
 

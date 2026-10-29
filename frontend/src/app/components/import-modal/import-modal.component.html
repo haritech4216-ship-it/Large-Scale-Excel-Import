@@ -46,6 +46,37 @@
             <p class="dropzone-hint">Supported format: Microsoft Excel (.xlsx) &bull; Maximum upload size: 100 MB</p>
           </div>
 
+          <!-- Sample Template Download Helper Banner -->
+          <div class="template-download-banner">
+            <div class="template-info">
+              <span class="template-icon">📄</span>
+              <div class="template-text">
+                <span class="template-heading">Need a starter spreadsheet?</span>
+                <span class="template-subtext">Download our pre-formatted template with 20 sample records.</span>
+              </div>
+            </div>
+            <button 
+              type="button" 
+              class="btn btn-outline-primary btn-download-template"
+              (click)="downloadSampleTemplate()"
+              [disabled]="isDownloadingTemplate()"
+              title="Download sample template containing 20 valid records"
+            >
+              @if (isDownloadingTemplate()) {
+                <span>Downloading...</span>
+              } @else {
+                <span>Download Sample Excel</span>
+              }
+            </button>
+          </div>
+
+          <!-- Template Download Error -->
+          @if (templateDownloadError()) {
+            <div class="alert alert-danger">
+              {{ templateDownloadError() }}
+            </div>
+          }
+
           <!-- File Validation Error -->
           @if (fileValidationError()) {
             <div class="alert alert-danger">
@@ -96,42 +127,107 @@
       @if (importDetail(); as detail) {
         <div class="detail-container">
 
-          <!-- Processing Progress Bar -->
-          <div class="processing-progress-section">
-            <div class="progress-labels">
-              <span class="progress-title">
-                @if (detail.status === 'Processing') {
-                  Import in progress...
-                } @else if (detail.status === 'Queued') {
-                  Queued for background worker...
-                } @else {
-                  Processing Complete
-                }
-              </span>
-              <span class="progress-percent">
-                @if (detail.total_rows > 0) {
-                  {{ detail.progress_percentage }}%
-                } @else if (detail.status === 'Queued') {
-                  Waiting...
-                } @else {
-                  100%
-                }
-              </span>
+          <!-- Three-Stage Progress Section -->
+          <div class="three-stage-container">
+            <h3 class="stages-main-title">Import Pipeline Progress</h3>
+            
+            <!-- Stage 1: File Upload -->
+            <div class="stage-card stage-completed">
+              <div class="stage-header">
+                <div class="stage-info">
+                  <span class="stage-num">Stage 1</span>
+                  <h4 class="stage-title">File Upload</h4>
+                  <p class="stage-desc">Spreadsheet transferred and stored securely</p>
+                </div>
+                <span class="stage-badge badge-completed">100% Uploaded</span>
+              </div>
+              <div class="progress-bar-bg">
+                <div class="progress-bar-fill fill-success" style="width: 100%;"></div>
+              </div>
+              <div class="stage-meta">
+                <span>File: <strong>{{ detail.filename }}</strong></span>
+                <span>Storage: <strong>Verified on Server</strong></span>
+              </div>
             </div>
 
-            <div class="progress-bar-bg">
-              <div 
-                class="progress-bar-fill"
-                [ngClass]="getStatusClass(detail.status)"
-                [style.width.%]="detail.total_rows > 0 ? detail.progress_percentage : (detail.status === 'Queued' ? 5 : 100)"
-              ></div>
+            <!-- Stage 2: Excel Row Validation -->
+            <div class="stage-card" [ngClass]="getStageStatusClass('validation')">
+              <div class="stage-header">
+                <div class="stage-info">
+                  <span class="stage-num">Stage 2</span>
+                  <h4 class="stage-title">Excel Row Validation</h4>
+                  <p class="stage-desc">Header mapping, type checking, field constraints & duplicate detection</p>
+                </div>
+                <span class="stage-badge" [ngClass]="getValidationBadgeClass()">
+                  {{ getValidationBadgeText() }}
+                </span>
+              </div>
+              <div class="progress-bar-bg">
+                @if (detail.stages?.validation?.indeterminate) {
+                  <div class="progress-bar-fill fill-indeterminate"></div>
+                } @else {
+                  <div class="progress-bar-fill fill-primary" [style.width.%]="detail.stages?.validation?.percentage ?? (detail.status === 'Completed' || detail.status === 'Completed with Errors' ? 100 : 0)"></div>
+                }
+              </div>
+              <div class="stage-metrics-row">
+                <div class="metric-item">
+                  <span class="metric-label">Checked Rows:</span>
+                  <span class="metric-val">
+                    {{ (detail.stages?.validation?.checked_rows ?? detail.validated_rows ?? detail.processed_rows) | number }}
+                    /
+                    {{ detail.total_rows_known && detail.total_rows > 0 ? (detail.total_rows | number) : (detail.total_rows > 0 ? (detail.total_rows | number) : 'Unknown') }}
+                  </span>
+                </div>
+                <div class="metric-item metric-valid">
+                  <span class="metric-label">Valid:</span>
+                  <span class="metric-val">{{ (detail.stages?.validation?.valid_rows ?? detail.valid_rows ?? detail.saved_rows) | number }}</span>
+                </div>
+                <div class="metric-item metric-invalid">
+                  <span class="metric-label">Invalid:</span>
+                  <span class="metric-val">{{ (detail.stages?.validation?.invalid_rows ?? detail.invalid_rows ?? 0) | number }}</span>
+                </div>
+                <div class="metric-item metric-duplicate">
+                  <span class="metric-label">Duplicates:</span>
+                  <span class="metric-val">{{ (detail.stages?.validation?.duplicate_rows ?? detail.duplicate_rows ?? 0) | number }}</span>
+                </div>
+              </div>
             </div>
 
-            <div class="progress-counts">
-              <span>Processed <strong>{{ detail.processed_rows | number }}</strong> of <strong>{{ detail.total_rows | number }}</strong> total rows</span>
-              @if (detail.duration_seconds !== null) {
-                <span>Elapsed: <strong>{{ detail.duration_seconds }}s</strong></span>
-              }
+            <!-- Stage 3: Database Import -->
+            <div class="stage-card" [ngClass]="getStageStatusClass('import')">
+              <div class="stage-header">
+                <div class="stage-info">
+                  <span class="stage-num">Stage 3</span>
+                  <h4 class="stage-title">Database Import</h4>
+                  <p class="stage-desc">Persisting validated, non-duplicate records to MySQL</p>
+                </div>
+                <span class="stage-badge" [ngClass]="getImportBadgeClass()">
+                  {{ getImportBadgeText() }}
+                </span>
+              </div>
+              <div class="progress-bar-bg">
+                @if (detail.stages?.import?.indeterminate) {
+                  <div class="progress-bar-fill fill-indeterminate"></div>
+                } @else {
+                  <div class="progress-bar-fill fill-emerald" [style.width.%]="detail.stages?.import?.percentage ?? (detail.status === 'Completed' || detail.status === 'Completed with Errors' ? 100 : 0)"></div>
+                }
+              </div>
+              <div class="stage-metrics-row">
+                <div class="metric-item metric-saved">
+                  <span class="metric-label">Successfully Saved:</span>
+                  <span class="metric-val">{{ detail.saved_rows | number }}</span>
+                </div>
+                <div class="metric-item">
+                  <span class="metric-label">Eligible for Import:</span>
+                  <span class="metric-val">{{ (detail.stages?.import?.eligible_rows ?? detail.valid_rows ?? detail.saved_rows) | number }}</span>
+                </div>
+                @if (detail.duration_seconds !== null) {
+                  <div class="metric-item">
+                    <span class="metric-label">Duration:</span>
+                    <span class="metric-val">{{ detail.duration_seconds }}s</span>
+                  </div>
+                }
+              </div>
             </div>
           </div>
 
@@ -139,18 +235,18 @@
           <div class="counters-grid">
             <div class="counter-card total">
               <span class="counter-label">Total Rows</span>
-              <span class="counter-value">{{ detail.total_rows | number }}</span>
+              <span class="counter-value">{{ detail.total_rows_known && detail.total_rows > 0 ? (detail.total_rows | number) : (detail.total_rows > 0 ? (detail.total_rows | number) : 'Unknown') }}</span>
             </div>
             <div class="counter-card processed">
-              <span class="counter-label">Processed</span>
-              <span class="counter-value">{{ detail.processed_rows | number }}</span>
+              <span class="counter-label">Validated</span>
+              <span class="counter-value">{{ (detail.stages?.validation?.checked_rows ?? detail.validated_rows ?? detail.processed_rows) | number }}</span>
             </div>
             <div class="counter-card saved">
               <span class="counter-label">Saved to DB</span>
               <span class="counter-value">{{ detail.saved_rows | number }}</span>
             </div>
             <div class="counter-card rejected">
-              <span class="counter-label">Rejected / Errors</span>
+              <span class="counter-label">Total Rejected</span>
               <span class="counter-value">{{ detail.rejected_rows | number }}</span>
             </div>
           </div>

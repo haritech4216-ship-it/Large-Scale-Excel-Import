@@ -239,3 +239,62 @@
 }
 
 .modal-notice { font-size: 0.75rem; color: #64748b; }
+
+/* Three-Stage Progress */
+.three-stage-container { display: flex; flex-direction: column; gap: 0.75rem; margin-top: 0.5rem; }
+.stages-main-title { font-size: 0.9rem; font-weight: 700; color: #1e293b; margin: 0 0 0.2rem; text-transform: uppercase; letter-spacing: 0.04em; }
+.stage-card { background: #f8fafc; border: 1px solid #e2e8f0; border-radius: 8px; padding: 0.75rem 1rem; display: flex; flex-direction: column; gap: 0.4rem; }
+.stage-card.stage-active { border-color: #3b82f6; background: #f0f7ff; box-shadow: 0 2px 4px rgba(59, 130, 246, 0.08); }
+.stage-card.stage-completed { border-color: #d1fae5; background: #fcfdfd; }
+.stage-header { display: flex; justify-content: space-between; align-items: flex-start; }
+.stage-info { display: flex; flex-direction: column; gap: 0.1rem; }
+.stage-num { font-size: 0.7rem; font-weight: 700; text-transform: uppercase; color: #3b82f6; }
+.stage-card.stage-completed .stage-num { color: #10b981; }
+.stage-title { font-size: 0.9rem; font-weight: 600; color: #0f172a; margin: 0; }
+.stage-desc { font-size: 0.75rem; color: #64748b; margin: 0; }
+.stage-badge { font-size: 0.75rem; font-weight: 600; padding: 0.15rem 0.5rem; border-radius: 9999px; white-space: nowrap; }
+.badge-completed { background: #d1fae5; color: #065f46; }
+.badge-processing { background: #dbeafe; color: #1e40af; }
+.badge-queued { background: #f1f5f9; color: #475569; }
+.badge-failed { background: #fee2e2; color: #991b1b; }
+.stage-meta { display: flex; justify-content: space-between; font-size: 0.75rem; color: #64748b; }
+.stage-metrics-row { display: flex; flex-wrap: wrap; gap: 0.5rem 1rem; font-size: 0.8rem; color: #475569; }
+.metric-item { display: flex; align-items: center; gap: 0.3rem; }
+.metric-label { color: #64748b; }
+.metric-val { font-weight: 600; color: #0f172a; }
+.metric-valid .metric-val { color: #0284c7; }
+.metric-invalid .metric-val { color: #dc2626; }
+.metric-duplicate .metric-val { color: #d97706; }
+.metric-saved .metric-val { color: #059669; }
+.fill-primary { background: #3b82f6; }
+.fill-success { background: #10b981; }
+.fill-emerald { background: #059669; }
+
+@keyframes indeterminateAnim {
+  0% { margin-left: 0%; width: 30%; }
+  50% { margin-left: 40%; width: 50%; }
+  100% { margin-left: 100%; width: 30%; }
+}
+.fill-indeterminate {
+  background: linear-gradient(90deg, #3b82f6, #60a5fa, #3b82f6);
+  animation: indeterminateAnim 1.6s infinite ease-in-out;
+}
+
+/* Template download banner */
+.template-download-banner {
+  margin-top: 1rem;
+  padding: 0.75rem 1rem;
+  background-color: #f8fafc;
+  border: 1px solid #e2e8f0;
+  border-radius: 8px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.75rem;
+}
+.template-info { display: flex; align-items: center; gap: 0.6rem; }
+.template-icon { font-size: 1.4rem; line-height: 1; }
+.template-text { display: flex; flex-direction: column; }
+.template-heading { font-size: 0.85rem; font-weight: 600; color: #1e293b; }
+.template-subtext { font-size: 0.75rem; color: #64748b; }
+.btn-download-template { font-size: 0.8rem; font-weight: 500; padding: 0.35rem 0.75rem; white-space: nowrap; }

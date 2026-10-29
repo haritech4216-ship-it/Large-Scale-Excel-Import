@@ -1,0 +1,844 @@
+openapi: 3.0.3
+info:
+  title: Large-Scale Excel Import API
+  version: 1.0.0
+  description: |
+    REST API for the asynchronous Large-Scale Excel Import Engine built with Laravel 13.
+    Supports asynchronous chunked streaming ingestion of .xlsx spreadsheets containing up to 500,000 records,
+    strict row-level schema validation, multi-tier duplicate detection, failure recovery,
+    and user-isolated ownership authorization via Laravel Sanctum bearer tokens.
+servers:
+  - url: /api
+    description: Current host relative API
+  - url: http://127.0.0.1:8000/api
+    description: Local development server
+
+tags:
+  - name: Authentication
+    description: Session token issuance, revocation, and identity verification
+  - name: Imports
+    description: Spreadsheet upload, lifecycle tracking, error reporting, and CSV export
+
+paths:
+  /auth/login:
+    post:
+      tags:
+        - Authentication
+      summary: Authenticate user credentials
+      description: |
+        Authenticates user email and password against stored bcrypt hashes.
+        On success, issues a plain-text Laravel Sanctum personal access token.
+      operationId: login
+      security: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/LoginRequest'
+      responses:
+        '200':
+          description: Authentication successful; returns personal access token and user identity
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/LoginResponse'
+        '401':
+          description: Invalid email or password credentials
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/MessageResponse'
+              example:
+                message: Invalid email or password.
+        '422':
+          description: Validation error on input fields
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ValidationErrorResponse'
+
+  /auth/logout:
+    post:
+      tags:
+        - Authentication
+      summary: Revoke current access token
+      description: |
+        Revokes and deletes the personal access token associated with the current Bearer token.
+        Subsequent requests using the same token are rejected with HTTP 401.
+      operationId: logout
+      security:
+        - BearerAuth: []
+      responses:
+        '200':
+          description: Token successfully revoked
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/MessageResponse'
+              example:
+                message: Successfully logged out.
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+
+  /auth/me:
+    get:
+      tags:
+        - Authentication
+      summary: Get currently authenticated user
+      description: Returns the user profile associated with the active Sanctum Bearer token.
+      operationId: getCurrentUser
+      security:
+        - BearerAuth: []
+      responses:
+        '200':
+          description: Profile of authenticated user
+          content:
+            application/json:
+              schema:
+                type: object
+                required:
+                  - user
+                properties:
+                  user:
+                    $ref: '#/components/schemas/User'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+
+  /imports:
+    post:
+      tags:
+        - Imports
+      summary: Upload an .xlsx spreadsheet and queue background import
+      description: |
+        Validates the binary file MIME type, ZIP header signature (`PK\x03\x04`), max file size (100 MB),
+        and workbook column headers. On validation success, stores the file securely in private storage
+        with a UUID filename, creates an `imports` record owned by the authenticated user in `Queued` status,
+        and dispatches `ProcessImportJob` to the background database queue.
+      operationId: uploadImport
+      security:
+        - BearerAuth: []
+      requestBody:
+        required: true
+        content:
+          multipart/form-data:
+            schema:
+              type: object
+              required:
+                - file
+              properties:
+                file:
+                  type: string
+                  format: binary
+                  description: Microsoft Excel workbook (.xlsx only, maximum 100 MB).
+      responses:
+        '201':
+          description: Import record created and background job queued
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ImportUploadResponse'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '422':
+          description: File validation failed or spreadsheet headers missing
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ValidationErrorResponse'
+              example:
+                message: Workbook structure validation failed.
+                errors:
+                  file:
+                    - "Missing required header(s): Customer Id, First Name."
+        '500':
+          description: Storage failure saving file to server disk
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/MessageResponse'
+              example:
+                message: Failed to store uploaded file on the server.
+
+    get:
+      tags:
+        - Imports
+      summary: List paginated import history
+      description: |
+        Retrieves a paginated list of import records belonging strictly to the currently authenticated user,
+        ordered by creation timestamp descending (`created_at desc`). Other users' imports are omitted.
+      operationId: listImports
+      security:
+        - BearerAuth: []
+      parameters:
+        - name: page
+          in: query
+          description: Page number for pagination
+          required: false
+          schema:
+            type: integer
+            minimum: 1
+            default: 1
+        - name: per_page
+          in: query
+          description: Number of records per page (min 1, max 100, default 15)
+          required: false
+          schema:
+            type: integer
+            minimum: 1
+            maximum: 100
+            default: 15
+      responses:
+        '200':
+          description: Paginated collection of user's imports
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/PaginatedImports'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+
+  /imports/{id}:
+    get:
+      tags:
+        - Imports
+      summary: Get import details, progress, and record counts
+      description: |
+        Retrieves real-time processing metrics and terminal status for a specific import.
+        Enforces user ownership: returning HTTP 403 if the import belongs to another user or has no owner.
+      operationId: getImportDetail
+      security:
+        - BearerAuth: []
+      parameters:
+        - $ref: '#/components/parameters/ImportId'
+      responses:
+        '200':
+          description: Import details, counts, and live progress
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ImportDetail'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+
+  /imports/{id}/errors:
+    get:
+      tags:
+        - Imports
+      summary: Get paginated row-level validation errors
+      description: |
+        Retrieves paginated validation and conflict error records for an import,
+        ordered by physical spreadsheet row number ascending (`excel_row asc`).
+        Enforces user ownership (HTTP 403 on unowned or cross-user imports).
+      operationId: getImportErrors
+      security:
+        - BearerAuth: []
+      parameters:
+        - $ref: '#/components/parameters/ImportId'
+        - name: page
+          in: query
+          description: Page number for pagination
+          required: false
+          schema:
+            type: integer
+            minimum: 1
+            default: 1
+        - name: per_page
+          in: query
+          description: Number of error records per page (min 1, max 100, default 25)
+          required: false
+          schema:
+            type: integer
+            minimum: 1
+            maximum: 100
+            default: 25
+      responses:
+        '200':
+          description: Paginated list of rejected rows and reasons
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/PaginatedRowErrors'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+
+  /imports/{id}/errors.csv:
+    get:
+      tags:
+        - Imports
+      summary: Download error report as CSV
+      description: |
+        Streams a CSV error report for all rejected rows in the specified import.
+        - Prefixes the byte stream with UTF-8 Byte Order Mark (`\xEF\xBB\xBF`) for clean Microsoft Excel rendering.
+        - Protects against CSV / Spreadsheet formula injection by prepending a single quote (`'`)
+          if a cell value begins with `=`, `+`, `-`, `@`, `\t`, or `\r`.
+        - Streams records in memory-bounded batches of 500 rows.
+        - Enforces ownership: returns HTTP 403 if requested by non-owner.
+      operationId: downloadErrorsCsv
+      security:
+        - BearerAuth: []
+      parameters:
+        - $ref: '#/components/parameters/ImportId'
+      responses:
+        '200':
+          description: Streamed CSV file download
+          headers:
+            Content-Type:
+              schema:
+                type: string
+                example: text/csv; charset=UTF-8
+            Content-Disposition:
+              schema:
+                type: string
+                example: attachment; filename="import_1_errors.csv"
+            Cache-Control:
+              schema:
+                type: string
+                example: no-cache, no-store, must-revalidate
+            Pragma:
+              schema:
+                type: string
+                example: no-cache
+            Expires:
+              schema:
+                type: string
+                example: '0'
+          content:
+            text/csv:
+              schema:
+                type: string
+                format: binary
+                example: |
+                  Excel Row,Customer ID,Rejection Reason,Timestamp
+                  2,CUST_002,Email must be a valid email address.,2026-10-29T12:00:05+00:00
+                  5,CUST_005,Duplicate Customer ID 'CUST_005' within file (first seen at row 2).,2026-10-29T12:00:05+00:00
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+
+  /imports/sample-template:
+    get:
+      tags:
+        - Imports
+      summary: Download sample Excel template spreadsheet (.xlsx)
+      description: |
+        Generates and streams a sample Excel spreadsheet (`sample_import_template.xlsx`)
+        containing the required 15 standard column headers and 20 valid, realistic sample customer data rows.
+      operationId: downloadSampleTemplate
+      security:
+        - BearerAuth: []
+        - {}
+      responses:
+        '200':
+          description: Streamed Excel spreadsheet template
+          headers:
+            Content-Type:
+              schema:
+                type: string
+                example: application/vnd.openxmlformats-officedocument.spreadsheetml.sheet
+            Content-Disposition:
+              schema:
+                type: string
+                example: attachment; filename=sample_import_template.xlsx
+          content:
+            application/vnd.openxmlformats-officedocument.spreadsheetml.sheet:
+              schema:
+                type: string
+                format: binary
+
+components:
+  securitySchemes:
+    BearerAuth:
+      type: http
+      scheme: bearer
+      bearerFormat: Sanctum Token
+      description: |
+        Laravel Sanctum personal access token. Pass in the header as:
+        `Authorization: Bearer <token>`
+
+  parameters:
+    ImportId:
+      name: id
+      in: path
+      description: Unique numeric identifier of the import
+      required: true
+      schema:
+        type: integer
+        example: 1
+
+  responses:
+    Unauthorized:
+      description: Missing, invalid, or revoked Bearer token
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/MessageResponse'
+          example:
+            message: Unauthenticated.
+
+    Forbidden:
+      description: Authenticated user does not own this resource or import is unowned
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/MessageResponse'
+          example:
+            message: This action is unauthorized.
+
+    NotFound:
+      description: Specified import ID does not exist in the database
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/MessageResponse'
+          example:
+            message: Import [999] not found.
+
+  schemas:
+    User:
+      type: object
+      required:
+        - id
+        - name
+        - email
+      properties:
+        id:
+          type: integer
+          example: 1
+        name:
+          type: string
+          example: Demo User
+        email:
+          type: string
+          format: email
+          example: admin@example.com
+
+    LoginRequest:
+      type: object
+      required:
+        - email
+        - password
+      properties:
+        email:
+          type: string
+          format: email
+          example: admin@example.com
+        password:
+          type: string
+          format: password
+          example: Password123!
+
+    LoginResponse:
+      type: object
+      required:
+        - token
+        - user
+        - message
+      properties:
+        token:
+          type: string
+          description: Plain-text Sanctum personal access token
+          example: 1|demoTokenStringXYZ1234567890abcdef
+        user:
+          $ref: '#/components/schemas/User'
+        message:
+          type: string
+          example: Login successful.
+
+    ImportStatus:
+      type: string
+      description: Discrete lifecycle states of an import
+      enum:
+        - Queued
+        - Processing
+        - Completed
+        - Completed with Errors
+        - Failed
+      example: Completed with Errors
+
+    ImportSummary:
+      type: object
+      required:
+        - id
+        - filename
+        - status
+        - total_rows
+        - processed_rows
+        - saved_rows
+        - rejected_rows
+        - created_at
+        - updated_at
+      properties:
+        id:
+          type: integer
+          example: 1
+        user_id:
+          type: integer
+          nullable: true
+          example: 1
+        filename:
+          type: string
+          example: customers_500k.xlsx
+        file_path:
+          type: string
+          example: imports/c7a9b012-45de-6789-0123-abcdef456789.xlsx
+        status:
+          $ref: '#/components/schemas/ImportStatus'
+        total_rows:
+          type: integer
+          example: 10000
+        processed_rows:
+          type: integer
+          example: 10000
+        saved_rows:
+          type: integer
+          example: 9950
+        rejected_rows:
+          type: integer
+          example: 50
+        started_at:
+          type: string
+          format: date-time
+          nullable: true
+          example: '2026-10-29T12:00:00.000000Z'
+        completed_at:
+          type: string
+          format: date-time
+          nullable: true
+          example: '2026-10-29T12:01:15.000000Z'
+        duration_seconds:
+          type: number
+          format: float
+          nullable: true
+          example: 75.32
+        failure_reason:
+          type: string
+          nullable: true
+          example: null
+        created_at:
+          type: string
+          format: date-time
+          example: '2026-10-29T11:59:50.000000Z'
+        updated_at:
+          type: string
+          format: date-time
+          example: '2026-10-29T12:01:15.000000Z'
+
+    ImportDetail:
+      type: object
+      required:
+        - id
+        - filename
+        - status
+        - total_rows
+        - processed_rows
+        - saved_rows
+        - rejected_rows
+        - progress_percentage
+        - created_at
+        - updated_at
+      properties:
+        id:
+          type: integer
+          example: 1
+        filename:
+          type: string
+          example: customers_500k.xlsx
+        status:
+          $ref: '#/components/schemas/ImportStatus'
+        total_rows:
+          type: integer
+          description: Total rows in the spreadsheet (0 while queued or during initial count)
+          example: 10000
+        processed_rows:
+          type: integer
+          description: Number of rows validated and evaluated
+          example: 10000
+        saved_rows:
+          type: integer
+          description: Number of customer records successfully persisted to the database
+          example: 9950
+        rejected_rows:
+          type: integer
+          description: Number of rows rejected due to validation failure or duplicate conflicts
+          example: 50
+        progress_percentage:
+          type: number
+          format: float
+          description: Processing completion percentage (0.0 to 100.0)
+          example: 100.0
+        started_at:
+          type: string
+          format: date-time
+          nullable: true
+          example: '2026-10-29T12:00:00.000000Z'
+        completed_at:
+          type: string
+          format: date-time
+          nullable: true
+          example: '2026-10-29T12:01:15.000000Z'
+        duration_seconds:
+          type: number
+          format: float
+          nullable: true
+          example: 75.32
+        failure_reason:
+          type: string
+          nullable: true
+          description: Sanitized fatal failure message if status is Failed
+          example: null
+        created_at:
+          type: string
+          format: date-time
+          example: '2026-10-29T11:59:50.000000Z'
+        updated_at:
+          type: string
+          format: date-time
+          example: '2026-10-29T12:01:15.000000Z'
+
+    ImportUploadResponse:
+      type: object
+      required:
+        - id
+        - filename
+        - status
+        - message
+      properties:
+        id:
+          type: integer
+          example: 1
+        filename:
+          type: string
+          example: customers_sample.xlsx
+        status:
+          type: string
+          example: Queued
+        message:
+          type: string
+          example: File uploaded and import queued successfully.
+
+    ImportRowError:
+      type: object
+      required:
+        - id
+        - import_id
+        - excel_row
+        - customer_id
+        - rejection_reason
+        - created_at
+      properties:
+        id:
+          type: integer
+          example: 1
+        import_id:
+          type: integer
+          example: 1
+        excel_row:
+          type: integer
+          description: 1-based physical row index from Excel (Row 1 = headers, Row 2+ = data rows)
+          example: 142
+        customer_id:
+          type: string
+          nullable: true
+          description: Customer ID value extracted from row, or null if missing
+          example: CUST_00142
+        rejection_reason:
+          type: string
+          description: Specific validation rule failure or duplicate conflict description
+          example: Duplicate Customer ID 'CUST_00142' within file (first seen at row 55).
+        created_at:
+          type: string
+          format: date-time
+          example: '2026-10-29T12:00:10.000000Z'
+
+    PaginatedImports:
+      type: object
+      required:
+        - current_page
+        - data
+        - first_page_url
+        - from
+        - last_page
+        - last_page_url
+        - links
+        - next_page_url
+        - path
+        - per_page
+        - prev_page_url
+        - to
+        - total
+      properties:
+        current_page:
+          type: integer
+          example: 1
+        data:
+          type: array
+          items:
+            $ref: '#/components/schemas/ImportSummary'
+        first_page_url:
+          type: string
+          example: http://127.0.0.1:8000/api/imports?page=1
+        from:
+          type: integer
+          nullable: true
+          example: 1
+        last_page:
+          type: integer
+          example: 5
+        last_page_url:
+          type: string
+          example: http://127.0.0.1:8000/api/imports?page=5
+        links:
+          type: array
+          items:
+            type: object
+            required:
+              - url
+              - label
+              - active
+            properties:
+              url:
+                type: string
+                nullable: true
+                example: http://127.0.0.1:8000/api/imports?page=2
+              label:
+                type: string
+                example: '2'
+              active:
+                type: boolean
+                example: false
+        next_page_url:
+          type: string
+          nullable: true
+          example: http://127.0.0.1:8000/api/imports?page=2
+        path:
+          type: string
+          example: http://127.0.0.1:8000/api/imports
+        per_page:
+          type: integer
+          example: 15
+        prev_page_url:
+          type: string
+          nullable: true
+          example: null
+        to:
+          type: integer
+          nullable: true
+          example: 15
+        total:
+          type: integer
+          example: 72
+
+    PaginatedRowErrors:
+      type: object
+      required:
+        - current_page
+        - data
+        - first_page_url
+        - from
+        - last_page
+        - last_page_url
+        - links
+        - next_page_url
+        - path
+        - per_page
+        - prev_page_url
+        - to
+        - total
+      properties:
+        current_page:
+          type: integer
+          example: 1
+        data:
+          type: array
+          items:
+            $ref: '#/components/schemas/ImportRowError'
+        first_page_url:
+          type: string
+          example: http://127.0.0.1:8000/api/imports/1/errors?page=1
+        from:
+          type: integer
+          nullable: true
+          example: 1
+        last_page:
+          type: integer
+          example: 2
+        last_page_url:
+          type: string
+          example: http://127.0.0.1:8000/api/imports/1/errors?page=2
+        links:
+          type: array
+          items:
+            type: object
+            required:
+              - url
+              - label
+              - active
+            properties:
+              url:
+                type: string
+                nullable: true
+              label:
+                type: string
+              active:
+                type: boolean
+        next_page_url:
+          type: string
+          nullable: true
+          example: http://127.0.0.1:8000/api/imports/1/errors?page=2
+        path:
+          type: string
+          example: http://127.0.0.1:8000/api/imports/1/errors
+        per_page:
+          type: integer
+          example: 25
+        prev_page_url:
+          type: string
+          nullable: true
+          example: null
+        to:
+          type: integer
+          nullable: true
+          example: 25
+        total:
+          type: integer
+          example: 48
+
+    MessageResponse:
+      type: object
+      required:
+        - message
+      properties:
+        message:
+          type: string
+          example: Operation completed successfully.
+
+    ValidationErrorResponse:
+      type: object
+      required:
+        - message
+        - errors
+      properties:
+        message:
+          type: string
+          example: The given data was invalid.
+        errors:
+          type: object
+          additionalProperties:
+            type: array
+            items:
+              type: string
+          example:
+            email:
+              - The email field is required.

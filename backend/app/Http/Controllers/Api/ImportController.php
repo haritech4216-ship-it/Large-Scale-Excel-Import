@@ -12,6 +12,7 @@ use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Storage;
 use Illuminate\Support\Str;
+use Symfony\Component\HttpFoundation\BinaryFileResponse;
 use Symfony\Component\HttpFoundation\StreamedResponse;
 
 class ImportController extends Controller
@@ -59,11 +60,15 @@ class ImportController extends Controller
             ], 422);
         }
 
+        $detectedTotal = $this->parserService->detectTotalRows($absolutePath);
+
         // Create import record with Queued status
         $import = Import::create([
+            'user_id' => $request->user()->id,
             'filename' => $originalFilename,
             'file_path' => $storedPath,
             'status' => Import::STATUS_QUEUED,
+            'total_rows' => $detectedTotal ?? 0,
         ]);
 
         // Dispatch asynchronous queue job
@@ -82,7 +87,7 @@ class ImportController extends Controller
      *
      * GET /api/imports/{id}
      */
-    public function show(int $id): JsonResponse
+    public function show(Request $request, int $id): JsonResponse
     {
         $import = Import::find($id);
         if (! $import) {
@@ -91,23 +96,29 @@ class ImportController extends Controller
             ], 404);
         }
 
-        $progressPercentage = 0.0;
-        if ($import->total_rows > 0) {
-            $progressPercentage = round(($import->processed_rows / $import->total_rows) * 100, 1);
-            if ($progressPercentage > 100.0) {
-                $progressPercentage = 100.0;
-            }
+        if ($import->user_id === null || (int) $request->user()->id !== (int) $import->user_id) {
+            return response()->json([
+                'message' => 'This action is unauthorized.',
+            ], 403);
         }
+
+        $progress = $this->calculateProgress($import);
 
         return response()->json([
             'id' => $import->id,
             'filename' => $import->filename,
             'status' => $import->status,
             'total_rows' => $import->total_rows,
+            'total_rows_known' => $progress['total_rows_known'],
             'processed_rows' => $import->processed_rows,
+            'validated_rows' => $import->validated_rows,
+            'valid_rows' => $import->valid_rows,
+            'invalid_rows' => $import->invalid_rows,
+            'duplicate_rows' => $import->duplicate_rows,
             'saved_rows' => $import->saved_rows,
             'rejected_rows' => $import->rejected_rows,
-            'progress_percentage' => $progressPercentage,
+            'progress_percentage' => $progress['progress_percentage'],
+            'stages' => $progress['stages'],
             'started_at' => $import->started_at?->toISOString(),
             'completed_at' => $import->completed_at?->toISOString(),
             'duration_seconds' => $import->duration_seconds,
@@ -115,6 +126,104 @@ class ImportController extends Controller
             'created_at' => $import->created_at->toISOString(),
             'updated_at' => $import->updated_at->toISOString(),
         ], 200);
+    }
+
+    /**
+     * Compute progress counters, percentages, and three-stage lifecycle state for an import.
+     *
+     * @return array{total_rows_known: bool, progress_percentage: float, stages: array}
+     */
+    public function calculateProgress(Import $import): array
+    {
+        $isTerminal = in_array($import->status, [
+            Import::STATUS_COMPLETED,
+            Import::STATUS_COMPLETED_WITH_ERRORS,
+            Import::STATUS_FAILED,
+        ], true);
+
+        $isTerminalSuccessful = $isTerminal && $import->status !== Import::STATUS_FAILED;
+
+        // Total rows is known if total_rows > 0 or if the job completed and processed_rows is 0 (genuine 0-row file)
+        $totalKnown = ($import->total_rows > 0) || ($isTerminalSuccessful && $import->processed_rows === 0);
+
+        // Overall progress percentage
+        $progressPercentage = 0.0;
+        if ($isTerminalSuccessful) {
+            $progressPercentage = 100.0;
+        } elseif ($totalKnown && $import->total_rows > 0) {
+            $progressPercentage = min(99.9, round(($import->processed_rows / $import->total_rows) * 100, 1));
+        }
+
+        // Stage 2: Validation progress
+        $validationPercentage = 0.0;
+        if ($isTerminalSuccessful) {
+            $validationPercentage = 100.0;
+        } elseif ($totalKnown && $import->total_rows > 0) {
+            $validationPercentage = min(99.9, round(($import->validated_rows / $import->total_rows) * 100, 1));
+        }
+
+        // Stage 3: Database import progress
+        // Stage 3 denominator represents total eligible rows.
+        // If validation has completed across the entire file, total eligible rows is known ($import->valid_rows).
+        // If validation is still in progress (more rows remain unread) or total rows is unknown,
+        // total eligible rows is not yet known, so Stage 3 is indeterminate (never jumping prematurely to 99.9% or 100%).
+        $validationCompleted = $isTerminalSuccessful || ($totalKnown && $import->total_rows > 0 && $import->validated_rows >= $import->total_rows);
+
+        $eligibleRows = $import->valid_rows;
+        $importPercentage = 0.0;
+        $importIndeterminate = false;
+
+        if ($isTerminalSuccessful) {
+            $importPercentage = 100.0;
+        } elseif ($import->status === Import::STATUS_FAILED) {
+            $importPercentage = 0.0;
+        } elseif ($import->status === Import::STATUS_PROCESSING) {
+            if ($validationCompleted && $eligibleRows > 0) {
+                $importPercentage = min(99.9, round(($import->saved_rows / $eligibleRows) * 100, 1));
+            } else {
+                $importIndeterminate = true;
+            }
+        }
+
+        $stages = [
+            'upload' => [
+                'status' => 'completed',
+                'percentage' => 100.0,
+            ],
+            'validation' => [
+                'status' => match ($import->status) {
+                    Import::STATUS_QUEUED => 'queued',
+                    Import::STATUS_PROCESSING => 'processing',
+                    Import::STATUS_FAILED => 'failed',
+                    default => 'completed',
+                },
+                'checked_rows' => $import->validated_rows,
+                'total_rows' => $import->total_rows,
+                'valid_rows' => $import->valid_rows,
+                'invalid_rows' => $import->invalid_rows,
+                'duplicate_rows' => $import->duplicate_rows,
+                'percentage' => $validationPercentage,
+                'indeterminate' => ($import->status === Import::STATUS_PROCESSING && ! $totalKnown),
+            ],
+            'import' => [
+                'status' => match ($import->status) {
+                    Import::STATUS_QUEUED => 'queued',
+                    Import::STATUS_PROCESSING => 'processing',
+                    Import::STATUS_FAILED => 'failed',
+                    default => 'completed',
+                },
+                'saved_rows' => $import->saved_rows,
+                'eligible_rows' => $eligibleRows,
+                'percentage' => $importPercentage,
+                'indeterminate' => $importIndeterminate,
+            ],
+        ];
+
+        return [
+            'total_rows_known' => $totalKnown,
+            'progress_percentage' => $progressPercentage,
+            'stages' => $stages,
+        ];
     }
 
     /**
@@ -126,7 +235,7 @@ class ImportController extends Controller
     {
         $perPage = min(max((int) $request->query('per_page', 15), 1), 100);
 
-        $imports = Import::query()
+        $imports = $request->user()->imports()
             ->orderBy('created_at', 'desc')
             ->paginate($perPage);
 
@@ -147,6 +256,12 @@ class ImportController extends Controller
             ], 404);
         }
 
+        if ($import->user_id === null || (int) $request->user()->id !== (int) $import->user_id) {
+            return response()->json([
+                'message' => 'This action is unauthorized.',
+            ], 403);
+        }
+
         $perPage = min(max((int) $request->query('per_page', 25), 1), 100);
 
         $errors = $import->rowErrors()
@@ -162,13 +277,19 @@ class ImportController extends Controller
      *
      * GET /api/imports/{id}/errors.csv
      */
-    public function downloadErrorsCsv(int $id): StreamedResponse|JsonResponse
+    public function downloadErrorsCsv(Request $request, int $id): StreamedResponse|JsonResponse
     {
         $import = Import::find($id);
         if (! $import) {
             return response()->json([
                 'message' => "Import [{$id}] not found.",
             ], 404);
+        }
+
+        if ($import->user_id === null || (int) $request->user()->id !== (int) $import->user_id) {
+            return response()->json([
+                'message' => 'This action is unauthorized.',
+            ], 403);
         }
 
         $filename = "import_{$import->id}_errors.csv";
@@ -221,5 +342,24 @@ class ImportController extends Controller
         }
 
         return $value;
+    }
+
+    /**
+     * Download a sample Excel spreadsheet (.xlsx) with 20 sample rows.
+     *
+     * GET /api/imports/sample-template
+     */
+    public function downloadSampleTemplate(): BinaryFileResponse
+    {
+        $tmpPath = tempnam(sys_get_temp_dir(), 'sample_template_').'.xlsx';
+        $this->parserService->generateSampleTemplate($tmpPath);
+
+        return response()->download(
+            $tmpPath,
+            'sample_import_template.xlsx',
+            [
+                'Content-Type' => 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+            ]
+        )->deleteFileAfterSend(true);
     }
 }

@@ -485,6 +485,7 @@ class ExcelImportEngineTest extends TestCase
 
         // Mock parser service to throw transient error during handle
         $mockParser = Mockery::mock(ExcelParserService::class);
+        $mockParser->shouldReceive('detectTotalRows')->andReturn(null);
         $mockParser->shouldReceive('validateHeaders')->andThrow(new RuntimeException('Transient lock wait timeout'));
 
         // Job should re-throw exception without marking the import permanently failed
@@ -522,6 +523,7 @@ class ExcelImportEngineTest extends TestCase
         $job->setJob($mockQueueJob);
 
         $mockParser = Mockery::mock(ExcelParserService::class);
+        $mockParser->shouldReceive('detectTotalRows')->andReturn(null);
         $mockParser->shouldReceive('validateHeaders')->andThrow(new RuntimeException('Permanent parse error on host=127.0.0.1 user=excel_user password=secret123'));
 
         try {

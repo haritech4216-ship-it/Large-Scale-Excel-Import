@@ -180,4 +180,20 @@ describe('ImportApiService', () => {
     expect(req.request.responseType).toBe('blob');
     req.flush(fakeBlob);
   });
+
+  it('should stream sample template download as an xlsx Blob', () => {
+    const fakeBlob = new Blob(['PK\x03\x04fake-xlsx-content'], {
+      type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+    });
+
+    service.downloadSampleTemplate().subscribe((blob) => {
+      expect(blob).toBeTruthy();
+      expect(blob.size).toBeGreaterThan(0);
+    });
+
+    const req = httpTesting.expectOne(`${service.baseUrl}/imports/sample-template`);
+    expect(req.request.method).toBe('GET');
+    expect(req.request.responseType).toBe('blob');
+    req.flush(fakeBlob);
+  });
 });

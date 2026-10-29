@@ -65,19 +65,19 @@ class ProcessImportJob implements ShouldQueue
         $fullPath = Storage::disk($importDisk)->path($import->file_path);
 
         if (! file_exists($fullPath) || ! is_readable($fullPath)) {
-            $import->update([
-                'status' => Import::STATUS_FAILED,
-                'failure_reason' => 'Stored spreadsheet file not found or not readable on disk.',
-                'completed_at' => now(),
-            ]);
+            $import->markFailed('Stored spreadsheet file not found or not readable on disk.');
 
             return;
         }
+
+        // Attempt to detect total rows as early as practical if unknown
+        $detectedTotal = $parserService->detectTotalRows($fullPath);
 
         // Mark import as Processing
         $import->update([
             'status' => Import::STATUS_PROCESSING,
             'started_at' => $import->started_at ?? now(),
+            'total_rows' => ($import->total_rows > 0) ? $import->total_rows : ($detectedTotal ?? 0),
             'failure_reason' => null,
         ]);
 
@@ -144,7 +144,7 @@ class ProcessImportJob implements ShouldQueue
             // Refresh import and calculate terminal state
             $import->refresh();
             $completedAt = now();
-            $duration = round($completedAt->diffInRealSeconds($import->started_at ?? $import->created_at), 2);
+            $duration = abs(round($completedAt->diffInRealSeconds($import->started_at ?? $import->created_at), 2));
 
             $terminalStatus = ($import->rejected_rows > 0)
                 ? Import::STATUS_COMPLETED_WITH_ERRORS
@@ -188,18 +188,14 @@ class ProcessImportJob implements ShouldQueue
     }
 
     /**
-     * Mark an import as failed with sanitized error details.
+     * Mark an import as failed with sanitized error details and accurate duration.
      */
     protected function markImportFailed(Import $import, ?Throwable $exception): void
     {
         $message = $exception ? $exception->getMessage() : 'Import processing failed after maximum attempts.';
 
         $import->refresh();
-        $import->update([
-            'status' => Import::STATUS_FAILED,
-            'failure_reason' => $this->sanitizeErrorMessage($message),
-            'completed_at' => now(),
-        ]);
+        $import->markFailed($this->sanitizeErrorMessage($message));
     }
 
     /**
@@ -255,7 +251,8 @@ class ProcessImportJob implements ShouldQueue
         );
 
         $validCandidates = []; // customer_id => ['row_number' => int, 'data' => array]
-        $rowErrors = [];       // list of ['import_id', 'excel_row', 'customer_id', 'rejection_reason', 'created_at', 'updated_at']
+        $invalidErrors = [];   // Format / validation schema errors
+        $duplicateErrors = []; // In-file, database, and race duplicate errors
 
         // 3. Row-level validation and in-file duplicate detection
         foreach ($chunkBuffer as $item) {
@@ -265,7 +262,7 @@ class ProcessImportJob implements ShouldQueue
             $validation = $rowValidator->validate($rawData);
 
             if (! $validation['valid']) {
-                $rowErrors[] = [
+                $invalidErrors[] = [
                     'import_id' => $import->id,
                     'excel_row' => $excelRow,
                     'customer_id' => $validation['customer_id'],
@@ -282,7 +279,7 @@ class ProcessImportJob implements ShouldQueue
             // In-file duplicate check
             if (isset($seenFileCustomerIds[$customerId])) {
                 $firstRowSeen = $seenFileCustomerIds[$customerId];
-                $rowErrors[] = [
+                $duplicateErrors[] = [
                     'import_id' => $import->id,
                     'excel_row' => $excelRow,
                     'customer_id' => $customerId,
@@ -316,7 +313,7 @@ class ProcessImportJob implements ShouldQueue
                 $rowNumberMap[$cid] = $candidate['excel_row'];
 
                 if (isset($existingDbIds[$cid])) {
-                    $rowErrors[] = [
+                    $duplicateErrors[] = [
                         'import_id' => $import->id,
                         'excel_row' => $candidate['excel_row'],
                         'customer_id' => $cid,
@@ -338,14 +335,18 @@ class ProcessImportJob implements ShouldQueue
         DB::transaction(function () use (
             $import,
             $chunk,
+            $totalInChunk,
             $customersToInsert,
-            $rowErrors,
+            $invalidErrors,
+            $duplicateErrors,
             $rowNumberMap
         ) {
             // Bulk insert valid customer records with race condition fallback
             if (! empty($customersToInsert)) {
-                $this->insertCustomersSafely($customersToInsert, $import->id, $rowErrors, $rowNumberMap);
+                $this->insertCustomersSafely($customersToInsert, $import->id, $duplicateErrors, $rowNumberMap);
             }
+
+            $rowErrors = array_merge($invalidErrors, $duplicateErrors);
 
             // Bulk insert row errors
             if (! empty($rowErrors)) {
@@ -356,13 +357,22 @@ class ProcessImportJob implements ShouldQueue
             }
 
             $savedCount = count($customersToInsert);
-            $rejectedCount = count($rowErrors);
+            $invalidCount = count($invalidErrors);
+            $duplicateCount = count($duplicateErrors);
+            $validCount = $savedCount;
+            $validatedCount = $totalInChunk;
+            $rejectedCount = $invalidCount + $duplicateCount;
             $processedCount = $savedCount + $rejectedCount;
 
             // Update chunk status to completed
             $chunk->update([
                 'status' => ImportChunk::STATUS_COMPLETED,
+                'total_rows' => $totalInChunk,
                 'processed_rows' => $processedCount,
+                'validated_rows' => $validatedCount,
+                'valid_rows' => $validCount,
+                'invalid_rows' => $invalidCount,
+                'duplicate_rows' => $duplicateCount,
                 'saved_rows' => $savedCount,
                 'rejected_rows' => $rejectedCount,
                 'completed_at' => now(),
@@ -370,6 +380,10 @@ class ProcessImportJob implements ShouldQueue
 
             // Increment parent import counters atomically
             $import->increment('processed_rows', $processedCount);
+            $import->increment('validated_rows', $validatedCount);
+            $import->increment('valid_rows', $validCount);
+            $import->increment('invalid_rows', $invalidCount);
+            $import->increment('duplicate_rows', $duplicateCount);
             $import->increment('saved_rows', $savedCount);
             $import->increment('rejected_rows', $rejectedCount);
         });
@@ -379,13 +393,13 @@ class ProcessImportJob implements ShouldQueue
      * Safely insert customers with duplicate-key race fallback.
      *
      * @param  array<int, array>  $customers
-     * @param  array<int, array>  $rowErrors
+     * @param  array<int, array>  $duplicateErrors
      * @param  array<string, int>  $rowNumberMap  Map of customer_id => physical Excel row number
      */
     protected function insertCustomersSafely(
         array &$customers,
         int $importId,
-        array &$rowErrors,
+        array &$duplicateErrors,
         array $rowNumberMap = []
     ): void {
         $savedCustomers = [];
@@ -410,7 +424,7 @@ class ProcessImportJob implements ShouldQueue
                                 $cid = $record['customer_id'];
                                 $excelRow = $rowNumberMap[$cid] ?? 0;
 
-                                $rowErrors[] = [
+                                $duplicateErrors[] = [
                                     'import_id' => $importId,
                                     'excel_row' => $excelRow,
                                     'customer_id' => $cid,

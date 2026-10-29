@@ -1,2 +1,12 @@
 #!/usr/bin/env bash
-/home/harishankar/opt/mysql-8.4/bin/mysql84-start
+# Optional helper script for local isolated user-space MySQL 8.4 daemon
+DAEMON_SCRIPT="/home/harishankar/opt/mysql-8.4/bin/mysql84-start"
+
+if [ -x "$DAEMON_SCRIPT" ]; then
+    exec "$DAEMON_SCRIPT"
+else
+    echo "Note: This script manages the isolated user-space MySQL 8.4 daemon."
+    echo "For standard system MySQL, start the service using:"
+    echo "  sudo systemctl start mysql    # Linux (systemd)"
+    echo "  brew services start mysql    # macOS"
+fi
