@@ -1,0 +1,272 @@
+<div class="modal-backdrop" (click)="close()">
+  <div class="modal-dialog" (click)="$event.stopPropagation()">
+    
+    <!-- Modal Header -->
+    <div class="modal-header">
+      <div class="header-titles">
+        <h2 class="modal-title">
+          @if (importDetail()) {
+            Import #{{ importDetail()?.id }}: {{ importDetail()?.filename }}
+          } @else {
+            Upload Excel Spreadsheet (.xlsx)
+          }
+        </h2>
+        @if (importDetail()) {
+          <span class="status-badge" [ngClass]="getStatusClass(importDetail()?.status)">
+            {{ importDetail()?.status }}
+          </span>
+        }
+      </div>
+      <button type="button" class="btn-close" (click)="close()" aria-label="Close modal">&times;</button>
+    </div>
+
+    <!-- Modal Body -->
+    <div class="modal-body">
+
+      <!-- View A: File Upload Form (if no active import detail) -->
+      @if (!importDetail()) {
+        <div class="upload-container">
+          
+          <div 
+            class="dropzone"
+            (dragover)="onDragOver($event)"
+            (drop)="onFileDrop($event)"
+          >
+            <div class="dropzone-icon">📊</div>
+            <p class="dropzone-prompt">Drag & drop your <strong>.xlsx</strong> file here, or click to browse</p>
+            <input 
+              type="file" 
+              id="fileInput" 
+              accept=".xlsx,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+              (change)="onFileSelected($event)"
+              [disabled]="isUploading()"
+              class="file-input-hidden"
+            />
+            <label for="fileInput" class="btn btn-secondary">Select Spreadsheet</label>
+            <p class="dropzone-hint">Supported format: Microsoft Excel (.xlsx) &bull; Maximum upload size: 100 MB</p>
+          </div>
+
+          <!-- File Validation Error -->
+          @if (fileValidationError()) {
+            <div class="alert alert-danger">
+              {{ fileValidationError() }}
+            </div>
+          }
+
+          <!-- Selected File Details -->
+          @if (selectedFile()) {
+            <div class="selected-file-card">
+              <div class="file-info">
+                <span class="file-name">{{ selectedFile()?.name }}</span>
+                <span class="file-size">{{ formatBytes(selectedFile()?.size || 0) }}</span>
+              </div>
+              @if (!isUploading()) {
+                <button type="button" class="btn btn-primary" (click)="startUpload()">
+                  Upload & Begin Import
+                </button>
+              }
+            </div>
+          }
+
+          <!-- HTTP Transfer Progress -->
+          @if (isUploading()) {
+            <div class="transfer-progress-card">
+              <div class="progress-labels">
+                <span>Uploading file to server...</span>
+                <span>{{ uploadProgress() }}%</span>
+              </div>
+              <div class="progress-bar-bg">
+                <div class="progress-bar-fill" [style.width.%]="uploadProgress()"></div>
+              </div>
+              <p class="transfer-hint">Transferring binary payload to server. Background import processing will begin once upload completes.</p>
+            </div>
+          }
+
+          <!-- Upload Error Alert -->
+          @if (uploadError()) {
+            <div class="alert alert-danger">
+              <strong>Upload Failed:</strong> {{ uploadError() }}
+            </div>
+          }
+
+        </div>
+      }
+
+      <!-- View B: Import Processing Status & Error Details -->
+      @if (importDetail(); as detail) {
+        <div class="detail-container">
+
+          <!-- Processing Progress Bar -->
+          <div class="processing-progress-section">
+            <div class="progress-labels">
+              <span class="progress-title">
+                @if (detail.status === 'Processing') {
+                  Import in progress...
+                } @else if (detail.status === 'Queued') {
+                  Queued for background worker...
+                } @else {
+                  Processing Complete
+                }
+              </span>
+              <span class="progress-percent">
+                @if (detail.total_rows > 0) {
+                  {{ detail.progress_percentage }}%
+                } @else if (detail.status === 'Queued') {
+                  Waiting...
+                } @else {
+                  100%
+                }
+              </span>
+            </div>
+
+            <div class="progress-bar-bg">
+              <div 
+                class="progress-bar-fill"
+                [ngClass]="getStatusClass(detail.status)"
+                [style.width.%]="detail.total_rows > 0 ? detail.progress_percentage : (detail.status === 'Queued' ? 5 : 100)"
+              ></div>
+            </div>
+
+            <div class="progress-counts">
+              <span>Processed <strong>{{ detail.processed_rows | number }}</strong> of <strong>{{ detail.total_rows | number }}</strong> total rows</span>
+              @if (detail.duration_seconds !== null) {
+                <span>Elapsed: <strong>{{ detail.duration_seconds }}s</strong></span>
+              }
+            </div>
+          </div>
+
+          <!-- Counter Cards Grid -->
+          <div class="counters-grid">
+            <div class="counter-card total">
+              <span class="counter-label">Total Rows</span>
+              <span class="counter-value">{{ detail.total_rows | number }}</span>
+            </div>
+            <div class="counter-card processed">
+              <span class="counter-label">Processed</span>
+              <span class="counter-value">{{ detail.processed_rows | number }}</span>
+            </div>
+            <div class="counter-card saved">
+              <span class="counter-label">Saved to DB</span>
+              <span class="counter-value">{{ detail.saved_rows | number }}</span>
+            </div>
+            <div class="counter-card rejected">
+              <span class="counter-label">Rejected / Errors</span>
+              <span class="counter-value">{{ detail.rejected_rows | number }}</span>
+            </div>
+          </div>
+
+          <!-- Failure Alert if Status is Failed -->
+          @if (detail.status === 'Failed') {
+            <div class="alert alert-danger failure-alert">
+              <h4>Import Failed</h4>
+              <p>{{ detail.failure_reason || 'An unexpected server error occurred during import processing.' }}</p>
+            </div>
+          }
+
+          <!-- Row-level Errors & CSV Download -->
+          @if (detail.rejected_rows > 0) {
+            <div class="errors-section">
+              <div class="errors-header">
+                <div>
+                  <h3 class="errors-title">Validation & Conflict Rejections ({{ detail.rejected_rows | number }})</h3>
+                  <p class="errors-subtitle">Physical Excel rows rejected by validation rules or duplicate detection.</p>
+                </div>
+                <button 
+                  type="button" 
+                  class="btn btn-outline-danger" 
+                  (click)="downloadCsv()"
+                  [disabled]="isDownloadingCsv()"
+                >
+                  @if (isDownloadingCsv()) {
+                    Generating CSV...
+                  } @else {
+                    Download Error CSV (.csv)
+                  }
+                </button>
+              </div>
+
+              @if (csvDownloadError()) {
+                <div class="alert alert-danger">
+                  {{ csvDownloadError() }}
+                </div>
+              }
+
+              <!-- Paginated Error Table -->
+              <div class="table-responsive">
+                <table class="data-table errors-table">
+                  <thead>
+                    <tr>
+                      <th style="width: 100px;">Excel Row</th>
+                      <th style="width: 160px;">Customer ID</th>
+                      <th>Rejection Reason</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    @if (isLoadingErrors()) {
+                      <tr>
+                        <td colspan="3" class="text-center py-3">Loading error records...</td>
+                      </tr>
+                    } @else if (errorsData()?.data?.length) {
+                      @for (err of errorsData()?.data; track err.id) {
+                        <tr>
+                          <td class="font-mono text-center">Row {{ err.excel_row }}</td>
+                          <td class="font-mono">{{ err.customer_id || 'N/A' }}</td>
+                          <td class="text-danger">{{ err.rejection_reason }}</td>
+                        </tr>
+                      }
+                    } @else {
+                      <tr>
+                        <td colspan="3" class="text-center py-3">No error records available on this page.</td>
+                      </tr>
+                    }
+                  </tbody>
+                </table>
+              </div>
+
+              <!-- Pagination Controls for Errors -->
+              @if (errorsData() && errorsData()!.last_page > 1) {
+                <div class="pagination-bar">
+                  <span class="pagination-info">
+                    Showing page {{ errorsData()?.current_page }} of {{ errorsData()?.last_page }} ({{ errorsData()?.total }} total errors)
+                  </span>
+                  <div class="pagination-buttons">
+                    <button 
+                      type="button" 
+                      class="btn btn-sm btn-secondary" 
+                      [disabled]="errorsData()?.current_page === 1"
+                      (click)="onPageChange(errorsData()!.current_page - 1)"
+                    >
+                      &laquo; Previous
+                    </button>
+                    <button 
+                      type="button" 
+                      class="btn btn-sm btn-secondary" 
+                      [disabled]="errorsData()?.current_page === errorsData()?.last_page"
+                      (click)="onPageChange(errorsData()!.current_page + 1)"
+                    >
+                      Next &raquo;
+                    </button>
+                  </div>
+                </div>
+              }
+
+            </div>
+          } @else if (detail.status === 'Completed') {
+            <div class="alert alert-success">
+              <strong>Perfect Import!</strong> All {{ detail.saved_rows | number }} rows were validated and imported into the database with 0 rejections.
+            </div>
+          }
+
+        </div>
+      }
+
+    </div>
+
+    <!-- Modal Footer -->
+    <div class="modal-footer">
+      <span class="modal-notice">Closing this window will not cancel background server imports.</span>
+      <button type="button" class="btn btn-secondary" (click)="close()">Close</button>
+    </div>
+
+  </div>
+</div>
