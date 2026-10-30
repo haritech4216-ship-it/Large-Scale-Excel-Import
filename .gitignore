@@ -45,3 +45,9 @@ vendor/
 .DS_Store
 Thumbs.db
 *.xlsx
+
+# Agent & assignment files
+AGENTS.md
+CLAUDE.md
+Laravel_Angular_Excel_Import_Assignment(1).pdf
+
