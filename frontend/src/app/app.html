@@ -27,6 +27,20 @@
     </div>
   </header>
 
+  <!-- Navigation Bar for Authenticated Users -->
+  @if (auth.isAuthenticated()) {
+    <nav class="app-subnav">
+      <div class="content-container subnav-container">
+        <a routerLink="/imports" routerLinkActive="active-tab" class="subnav-tab">
+          📋 Import History
+        </a>
+        <a routerLink="/imported-data" routerLinkActive="active-tab" class="subnav-tab">
+          👥 Imported Data
+        </a>
+      </div>
+    </nav>
+  }
+
   <!-- Main Content Container with Router Outlet -->
   <main class="main-content">
     <div class="content-container">

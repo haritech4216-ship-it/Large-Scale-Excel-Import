@@ -1,6 +1,6 @@
 import { Component, inject, signal } from '@angular/core';
 import { CommonModule } from '@angular/common';
-import { Router, RouterOutlet } from '@angular/router';
+import { Router, RouterLink, RouterLinkActive, RouterOutlet } from '@angular/router';
 import { AuthService } from './services/auth.service';
 import { ImportModalService } from './services/import-modal.service';
 import { ImportModalComponent } from './components/import-modal/import-modal.component';
@@ -8,7 +8,7 @@ import { ImportModalComponent } from './components/import-modal/import-modal.com
 @Component({
   selector: 'app-root',
   standalone: true,
-  imports: [CommonModule, RouterOutlet, ImportModalComponent],
+  imports: [CommonModule, RouterOutlet, RouterLink, RouterLinkActive, ImportModalComponent],
   templateUrl: './app.html',
   styleUrl: './app.css',
 })

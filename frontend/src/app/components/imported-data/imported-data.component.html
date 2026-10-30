@@ -1,0 +1,240 @@
+<section class="section-card">
+  <!-- Section Header & Controls -->
+  <div class="section-header">
+    <div>
+      <h2 class="section-title">Imported Data</h2>
+      <p class="section-subtitle">Browse, search, and manage customer records persisted from spreadsheet imports.</p>
+    </div>
+
+    <!-- Actions Row: Search, Refresh, Delete All -->
+    <div class="controls-toolbar">
+      <div class="search-box">
+        <input 
+          type="text" 
+          class="form-control search-input" 
+          placeholder="Search by ID, name, email, company, city..." 
+          [ngModel]="searchQuery()"
+          (ngModelChange)="onSearchChange($event)"
+          [disabled]="isLoading() || isDeleting()"
+        />
+        @if (searchQuery()) {
+          <button type="button" class="btn-clear-search" (click)="clearSearch()" title="Clear search">✕</button>
+        }
+      </div>
+
+      <button 
+        type="button" 
+        class="btn btn-secondary btn-sm" 
+        (click)="loadData()" 
+        [disabled]="isLoading() || isDeleting()"
+      >
+        @if (isLoading()) {
+          Refreshing...
+        } @else {
+          ↻ Refresh Data
+        }
+      </button>
+
+      <button 
+        type="button" 
+        class="btn btn-danger btn-sm btn-delete-all" 
+        (click)="openDeleteDialog()"
+        [disabled]="isLoading() || isDeleting() || totalEligibleCount() === 0"
+        title="Delete all imported records in your account"
+      >
+        🗑️ Delete All ({{ totalEligibleCount() | number }})
+      </button>
+    </div>
+  </div>
+
+  <!-- Success Notification Alert -->
+  @if (successMessage()) {
+    <div class="alert alert-success">
+      <div style="display: flex; justify-content: space-between; align-items: center;">
+        <span><strong>Success:</strong> {{ successMessage() }}</span>
+        <button type="button" class="btn-close-alert" (click)="successMessage.set(null)">✕</button>
+      </div>
+    </div>
+  }
+
+  <!-- Error Notification Alert -->
+  @if (errorMessage()) {
+    <div class="alert alert-danger">
+      <div style="display: flex; justify-content: space-between; align-items: center;">
+        <span><strong>Notice:</strong> {{ errorMessage() }}</span>
+        <button type="button" class="btn-close-alert" (click)="errorMessage.set(null)">✕</button>
+      </div>
+    </div>
+  }
+
+  <!-- Data Table -->
+  <div class="table-responsive">
+    <table class="data-table">
+      <thead>
+        <tr>
+          <th style="width: 120px;">Customer ID</th>
+          <th>Name</th>
+          <th>Email</th>
+          <th>Phone Number</th>
+          <th>Profession</th>
+          <th>Company</th>
+          <th>Location</th>
+          <th style="width: 90px;">Status</th>
+          <th style="width: 90px; text-align: center;">Import</th>
+        </tr>
+      </thead>
+      <tbody>
+        @if (isLoading()) {
+          <tr>
+            <td colspan="9" class="state-cell">
+              <div class="spinner"></div>
+              <span>Loading imported customer records...</span>
+            </td>
+          </tr>
+        } @else if (importedData()?.data?.length) {
+          @for (customer of importedData()?.data; track customer.id) {
+            <tr class="customer-row">
+              <td class="font-mono font-semibold text-primary">{{ customer.customer_id }}</td>
+              <td class="font-semibold">{{ customer.first_name }} {{ customer.last_name }}</td>
+              <td>{{ customer.email }}</td>
+              <td class="font-mono text-muted">{{ customer.phone_number }}</td>
+              <td>{{ customer.profession }}</td>
+              <td class="text-muted">{{ customer.company_name || '-' }}</td>
+              <td>{{ customer.city }}, {{ customer.country }}</td>
+              <td>
+                <span class="status-pill" [ngClass]="customer.status === 'Active' ? 'pill-active' : 'pill-inactive'">
+                  {{ customer.status }}
+                </span>
+              </td>
+              <td class="font-mono text-muted text-center">#{{ customer.import_id }}</td>
+            </tr>
+          }
+        } @else {
+          <tr>
+            <td colspan="9" class="state-cell empty-state">
+              <span class="empty-icon">👥</span>
+              <p class="empty-title">
+                @if (searchQuery()) {
+                  No customer records matched "{{ searchQuery() }}"
+                } @else {
+                  No imported customer records found
+                }
+              </p>
+              <p class="empty-hint">
+                @if (searchQuery()) {
+                  Try searching with a different keyword or clear the search filter.
+                } @else {
+                  Upload an Excel spreadsheet from the Import History page to import customer records.
+                }
+              </p>
+            </td>
+          </tr>
+        }
+      </tbody>
+    </table>
+  </div>
+
+  <!-- Pagination Footer -->
+  @if (importedData() && importedData()!.total > 0) {
+    <div class="table-footer">
+      <span class="pagination-info">
+        Showing <strong>{{ importedData()?.from }}</strong> to <strong>{{ importedData()?.to }}</strong> of <strong>{{ importedData()?.total }}</strong> records (<strong>{{ totalEligibleCount() }}</strong> total eligible for deletion)
+      </span>
+      <div class="pagination-controls">
+        <button 
+          type="button" 
+          class="btn btn-sm btn-secondary" 
+          [disabled]="importedData()?.current_page === 1 || isLoading()"
+          (click)="loadData(importedData()!.current_page - 1)"
+        >
+          &laquo; Previous
+        </button>
+        <span class="page-indicator">
+          Page {{ importedData()?.current_page }} of {{ importedData()?.last_page }}
+        </span>
+        <button 
+          type="button" 
+          class="btn btn-sm btn-secondary" 
+          [disabled]="importedData()?.current_page === importedData()?.last_page || isLoading()"
+          (click)="loadData(importedData()!.current_page + 1)"
+        >
+          Next &raquo;
+        </button>
+      </div>
+    </div>
+  }
+</section>
+
+<!-- Delete All Confirmation Modal -->
+@if (isDeleteDialogOpen()) {
+  <div class="modal-backdrop" (click)="closeDeleteDialog()">
+    <div class="modal-card delete-modal" (click)="$event.stopPropagation()">
+      <div class="modal-header">
+        <div class="modal-title-group">
+          <span class="modal-icon-warning">⚠️</span>
+          <h3 class="modal-title">Delete All Imported Data</h3>
+        </div>
+        <button type="button" class="btn-close" (click)="closeDeleteDialog()" [disabled]="isDeleting()">✕</button>
+      </div>
+
+      <div class="modal-body">
+        <div class="warning-box">
+          <p class="warning-highlight">
+            You are about to delete <strong>{{ totalEligibleCount() | number }}</strong> imported customer records associated with your account.
+          </p>
+          <ul class="warning-list">
+            <li>This operation will permanently remove all imported customer rows from the database.</li>
+            <li>Pre-existing/unrelated customer records will remain untouched.</li>
+            <li>Import history, spreadsheet files, queue jobs, and error logs will be preserved.</li>
+            <li><strong>This action cannot be undone.</strong></li>
+          </ul>
+        </div>
+
+        @if (deleteError()) {
+          <div class="alert alert-danger">
+            {{ deleteError() }}
+          </div>
+        }
+
+        <div class="confirmation-form">
+          <label class="form-label" for="confirmInput">
+            Please type <strong>DELETE ALL</strong> to confirm:
+          </label>
+          <input 
+            id="confirmInput"
+            type="text" 
+            class="form-control confirm-input" 
+            placeholder="DELETE ALL" 
+            [ngModel]="confirmationInput()"
+            (ngModelChange)="confirmationInput.set($event)"
+            [disabled]="isDeleting()"
+            autocomplete="off"
+          />
+        </div>
+      </div>
+
+      <div class="modal-footer">
+        <button 
+          type="button" 
+          class="btn btn-secondary" 
+          (click)="closeDeleteDialog()" 
+          [disabled]="isDeleting()"
+        >
+          Cancel
+        </button>
+        <button 
+          type="button" 
+          class="btn btn-danger btn-confirm-delete" 
+          (click)="confirmDeleteAll()" 
+          [disabled]="!isConfirmButtonEnabled()"
+        >
+          @if (isDeleting()) {
+            <span class="spinner-sm"></span> Deleting Records...
+          } @else {
+            Delete All {{ totalEligibleCount() | number }} Records
+          }
+        </button>
+      </div>
+    </div>
+  </div>
+}

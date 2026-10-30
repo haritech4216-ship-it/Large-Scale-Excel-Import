@@ -158,6 +158,8 @@ class ImportController extends Controller
         $validationPercentage = 0.0;
         if ($isTerminalSuccessful) {
             $validationPercentage = 100.0;
+        } elseif ($import->status === Import::STATUS_FAILED && $totalKnown && $import->total_rows > 0 && $import->validated_rows >= $import->total_rows) {
+            $validationPercentage = 100.0;
         } elseif ($totalKnown && $import->total_rows > 0) {
             $validationPercentage = min(99.9, round(($import->validated_rows / $import->total_rows) * 100, 1));
         }
@@ -174,14 +176,28 @@ class ImportController extends Controller
         $importIndeterminate = false;
 
         if ($isTerminalSuccessful) {
-            $importPercentage = 100.0;
-        } elseif ($import->status === Import::STATUS_FAILED) {
-            $importPercentage = 0.0;
+            if ($eligibleRows > 0 && $import->saved_rows >= $eligibleRows) {
+                $importPercentage = 100.0;
+            } elseif ($eligibleRows > 0) {
+                $importPercentage = round(($import->saved_rows / $eligibleRows) * 100, 1);
+            } else {
+                $importPercentage = 0.0;
+            }
         } elseif ($import->status === Import::STATUS_PROCESSING) {
-            if ($validationCompleted && $eligibleRows > 0) {
-                $importPercentage = min(99.9, round(($import->saved_rows / $eligibleRows) * 100, 1));
+            if ($validationCompleted) {
+                if ($eligibleRows > 0) {
+                    $importPercentage = min(99.9, round(($import->saved_rows / $eligibleRows) * 100, 1));
+                } else {
+                    $importPercentage = 0.0;
+                }
             } else {
                 $importIndeterminate = true;
+            }
+        } elseif ($import->status === Import::STATUS_FAILED) {
+            if ($validationCompleted && $eligibleRows > 0 && $import->saved_rows > 0) {
+                $importPercentage = min(99.9, round(($import->saved_rows / $eligibleRows) * 100, 1));
+            } else {
+                $importPercentage = 0.0;
             }
         }
 

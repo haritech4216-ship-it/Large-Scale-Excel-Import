@@ -31,6 +31,9 @@ describe('App Routing Integration', () => {
     vi.spyOn(apiService, 'getImports').mockReturnValue(
       of({ current_page: 1, data: [], from: 1, last_page: 1, per_page: 15, to: 0, total: 0 })
     );
+    vi.spyOn(apiService, 'getImportedData').mockReturnValue(
+      of({ current_page: 1, data: [], from: 1, last_page: 1, per_page: 15, to: 0, total: 0, total_eligible_count: 0 })
+    );
   });
 
   afterEach(() => {
@@ -71,5 +74,17 @@ describe('App Routing Integration', () => {
     authService.clearSession();
     await router.navigate(['/some-random-route']);
     expect(router.url).toBe('/login');
+  });
+
+  it('should redirect unauthenticated navigation from /imported-data to /login', async () => {
+    authService.clearSession();
+    await router.navigate(['/imported-data']);
+    expect(router.url).toBe('/login');
+  });
+
+  it('should allow authenticated navigation directly to /imported-data', async () => {
+    authService.setSession('test-token', { id: 1, name: 'Admin', email: 'admin@example.com' });
+    await router.navigate(['/imported-data']);
+    expect(router.url).toBe('/imported-data');
   });
 });

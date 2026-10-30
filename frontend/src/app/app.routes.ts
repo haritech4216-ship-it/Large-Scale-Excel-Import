@@ -1,6 +1,7 @@
 import { Routes } from '@angular/router';
 import { LoginComponent } from './components/login/login.component';
 import { ImportsComponent } from './components/imports/imports.component';
+import { ImportedDataComponent } from './components/imported-data/imported-data.component';
 import { authGuard, guestGuard, rootGuard } from './guards/auth.guard';
 
 export const routes: Routes = [
@@ -18,6 +19,11 @@ export const routes: Routes = [
   {
     path: 'imports',
     component: ImportsComponent,
+    canActivate: [authGuard],
+  },
+  {
+    path: 'imported-data',
+    component: ImportedDataComponent,
     canActivate: [authGuard],
   },
   {

@@ -209,7 +209,7 @@
                 @if (detail.stages?.import?.indeterminate) {
                   <div class="progress-bar-fill fill-indeterminate"></div>
                 } @else {
-                  <div class="progress-bar-fill fill-emerald" [style.width.%]="detail.stages?.import?.percentage ?? (detail.status === 'Completed' || detail.status === 'Completed with Errors' ? 100 : 0)"></div>
+                  <div class="progress-bar-fill fill-emerald" [style.width.%]="getImportProgressWidth()"></div>
                 }
               </div>
               <div class="stage-metrics-row">

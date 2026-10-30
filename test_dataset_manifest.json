@@ -1,0 +1,384 @@
+{
+    "total_rows": 500000,
+    "header_row": 1,
+    "data_rows_start": 2,
+    "data_rows_end": 500001,
+    "counts": {
+        "valid": 494000,
+        "in_file_duplicates": 2500,
+        "db_duplicates": 1000,
+        "invalid_rows": 2500
+    },
+    "sample_injected_errors": [
+        {
+            "excel_row": 1002,
+            "customer_id": "",
+            "error_type": 0,
+            "expected_error": "Customer ID is required."
+        },
+        {
+            "excel_row": 1201,
+            "customer_id": "CUST-OVERSIZED-XXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX",
+            "error_type": 1,
+            "expected_error": "Customer ID must not exceed 100 characters."
+        },
+        {
+            "excel_row": 1400,
+            "customer_id": "CUST-0000711",
+            "error_type": 2,
+            "expected_error": "First Name is required."
+        },
+        {
+            "excel_row": 1599,
+            "customer_id": "CUST-0000811",
+            "error_type": 3,
+            "expected_error": "Last Name is required."
+        },
+        {
+            "excel_row": 1798,
+            "customer_id": "CUST-0000911",
+            "error_type": 4,
+            "expected_error": "Email must be a valid email address."
+        },
+        {
+            "excel_row": 1997,
+            "customer_id": "CUST-0001011",
+            "error_type": 5,
+            "expected_error": "Email is required."
+        },
+        {
+            "excel_row": 2196,
+            "customer_id": "CUST-0001198",
+            "error_type": 6,
+            "expected_error": "Phone Number format is invalid."
+        },
+        {
+            "excel_row": 2395,
+            "customer_id": "CUST-0001397",
+            "error_type": 7,
+            "expected_error": "Phone Number is required."
+        },
+        {
+            "excel_row": 2594,
+            "customer_id": "CUST-0001596",
+            "error_type": 8,
+            "expected_error": "Date of Birth (DOB) is required and must be a valid date."
+        },
+        {
+            "excel_row": 2793,
+            "customer_id": "CUST-0001795",
+            "error_type": 9,
+            "expected_error": "Profession is required."
+        },
+        {
+            "excel_row": 2992,
+            "customer_id": "CUST-0001994",
+            "error_type": 10,
+            "expected_error": "Country is required."
+        },
+        {
+            "excel_row": 3191,
+            "customer_id": "CUST-0002193",
+            "error_type": 11,
+            "expected_error": "City is required."
+        },
+        {
+            "excel_row": 3390,
+            "customer_id": "CUST-0002392",
+            "error_type": 12,
+            "expected_error": "Social Media URL must be a valid URL."
+        },
+        {
+            "excel_row": 3589,
+            "customer_id": "CUST-0002591",
+            "error_type": 13,
+            "expected_error": "Registration Date is required and must be a valid date."
+        },
+        {
+            "excel_row": 3788,
+            "customer_id": "CUST-0002790",
+            "error_type": 14,
+            "expected_error": "Status must be either \"Active\" or \"Inactive\"."
+        },
+        {
+            "excel_row": 3987,
+            "customer_id": "CUST-0002989",
+            "error_type": 15,
+            "expected_error": "Multiple validation errors (Email, Phone, Status)."
+        },
+        {
+            "excel_row": 4186,
+            "customer_id": "",
+            "error_type": 0,
+            "expected_error": "Customer ID is required."
+        },
+        {
+            "excel_row": 4385,
+            "customer_id": "CUST-OVERSIZED-XXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX",
+            "error_type": 1,
+            "expected_error": "Customer ID must not exceed 100 characters."
+        },
+        {
+            "excel_row": 4584,
+            "customer_id": "CUST-0003586",
+            "error_type": 2,
+            "expected_error": "First Name is required."
+        },
+        {
+            "excel_row": 4783,
+            "customer_id": "CUST-0003785",
+            "error_type": 3,
+            "expected_error": "Last Name is required."
+        },
+        {
+            "excel_row": 4982,
+            "customer_id": "CUST-0003984",
+            "error_type": 4,
+            "expected_error": "Email must be a valid email address."
+        },
+        {
+            "excel_row": 5181,
+            "customer_id": "CUST-0004183",
+            "error_type": 5,
+            "expected_error": "Email is required."
+        },
+        {
+            "excel_row": 5380,
+            "customer_id": "CUST-0004382",
+            "error_type": 6,
+            "expected_error": "Phone Number format is invalid."
+        },
+        {
+            "excel_row": 5579,
+            "customer_id": "CUST-0004581",
+            "error_type": 7,
+            "expected_error": "Phone Number is required."
+        },
+        {
+            "excel_row": 5778,
+            "customer_id": "CUST-0004780",
+            "error_type": 8,
+            "expected_error": "Date of Birth (DOB) is required and must be a valid date."
+        },
+        {
+            "excel_row": 5977,
+            "customer_id": "CUST-0004979",
+            "error_type": 9,
+            "expected_error": "Profession is required."
+        },
+        {
+            "excel_row": 6176,
+            "customer_id": "CUST-0005178",
+            "error_type": 10,
+            "expected_error": "Country is required."
+        },
+        {
+            "excel_row": 6375,
+            "customer_id": "CUST-0005377",
+            "error_type": 11,
+            "expected_error": "City is required."
+        },
+        {
+            "excel_row": 6574,
+            "customer_id": "CUST-0005576",
+            "error_type": 12,
+            "expected_error": "Social Media URL must be a valid URL."
+        },
+        {
+            "excel_row": 6773,
+            "customer_id": "CUST-0005775",
+            "error_type": 13,
+            "expected_error": "Registration Date is required and must be a valid date."
+        },
+        {
+            "excel_row": 6972,
+            "customer_id": "CUST-0005974",
+            "error_type": 14,
+            "expected_error": "Status must be either \"Active\" or \"Inactive\"."
+        },
+        {
+            "excel_row": 7171,
+            "customer_id": "CUST-0006173",
+            "error_type": 15,
+            "expected_error": "Multiple validation errors (Email, Phone, Status)."
+        },
+        {
+            "excel_row": 7370,
+            "customer_id": "",
+            "error_type": 0,
+            "expected_error": "Customer ID is required."
+        },
+        {
+            "excel_row": 7569,
+            "customer_id": "CUST-OVERSIZED-XXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX",
+            "error_type": 1,
+            "expected_error": "Customer ID must not exceed 100 characters."
+        },
+        {
+            "excel_row": 7768,
+            "customer_id": "CUST-0006770",
+            "error_type": 2,
+            "expected_error": "First Name is required."
+        }
+    ],
+    "sample_injected_duplicates": [
+        {
+            "excel_row": 10002,
+            "customer_id": "CUST-0008738",
+            "first_seen_excel_row": 9736,
+            "type": "in_file_duplicate"
+        },
+        {
+            "excel_row": 10198,
+            "customer_id": "CUST-0001403",
+            "first_seen_excel_row": 2401,
+            "type": "in_file_duplicate"
+        },
+        {
+            "excel_row": 10394,
+            "customer_id": "CUST-0004646",
+            "first_seen_excel_row": 5644,
+            "type": "in_file_duplicate"
+        },
+        {
+            "excel_row": 10590,
+            "customer_id": "CUST-0000597",
+            "first_seen_excel_row": 1174,
+            "type": "in_file_duplicate"
+        },
+        {
+            "excel_row": 10786,
+            "customer_id": "CUST-0009640",
+            "first_seen_excel_row": 10642,
+            "type": "in_file_duplicate"
+        },
+        {
+            "excel_row": 10982,
+            "customer_id": "CUST-0005192",
+            "first_seen_excel_row": 6190,
+            "type": "in_file_duplicate"
+        },
+        {
+            "excel_row": 11178,
+            "customer_id": "CUST-0005525",
+            "first_seen_excel_row": 6523,
+            "type": "in_file_duplicate"
+        },
+        {
+            "excel_row": 11374,
+            "customer_id": "CUST-0001862",
+            "first_seen_excel_row": 2860,
+            "type": "in_file_duplicate"
+        },
+        {
+            "excel_row": 11570,
+            "customer_id": "CUST-0002081",
+            "first_seen_excel_row": 3079,
+            "type": "in_file_duplicate"
+        },
+        {
+            "excel_row": 11766,
+            "customer_id": "CUST-0006140",
+            "first_seen_excel_row": 7138,
+            "type": "in_file_duplicate"
+        },
+        {
+            "excel_row": 11962,
+            "customer_id": "CUST-0000012",
+            "first_seen_excel_row": 13,
+            "type": "in_file_duplicate"
+        },
+        {
+            "excel_row": 12158,
+            "customer_id": "CUST-0005003",
+            "first_seen_excel_row": 6001,
+            "type": "in_file_duplicate"
+        },
+        {
+            "excel_row": 12354,
+            "customer_id": "CUST-0003851",
+            "first_seen_excel_row": 4849,
+            "type": "in_file_duplicate"
+        },
+        {
+            "excel_row": 12550,
+            "customer_id": "CUST-0003998",
+            "first_seen_excel_row": 4996,
+            "type": "in_file_duplicate"
+        },
+        {
+            "excel_row": 12746,
+            "customer_id": "CUST-0010079",
+            "first_seen_excel_row": 11083,
+            "type": "in_file_duplicate"
+        },
+        {
+            "excel_row": 12942,
+            "customer_id": "CUST-0007997",
+            "first_seen_excel_row": 8995,
+            "type": "in_file_duplicate"
+        },
+        {
+            "excel_row": 13138,
+            "customer_id": "CUST-0009112",
+            "first_seen_excel_row": 10111,
+            "type": "in_file_duplicate"
+        },
+        {
+            "excel_row": 13334,
+            "customer_id": "CUST-0001253",
+            "first_seen_excel_row": 2251,
+            "type": "in_file_duplicate"
+        },
+        {
+            "excel_row": 13530,
+            "customer_id": "CUST-0003629",
+            "first_seen_excel_row": 4627,
+            "type": "in_file_duplicate"
+        },
+        {
+            "excel_row": 13726,
+            "customer_id": "CUST-0012037",
+            "first_seen_excel_row": 13051,
+            "type": "in_file_duplicate"
+        },
+        {
+            "excel_row": 13922,
+            "customer_id": "CUST-0006497",
+            "first_seen_excel_row": 7495,
+            "type": "in_file_duplicate"
+        },
+        {
+            "excel_row": 14118,
+            "customer_id": "CUST-0009327",
+            "first_seen_excel_row": 10327,
+            "type": "in_file_duplicate"
+        },
+        {
+            "excel_row": 14314,
+            "customer_id": "CUST-0003224",
+            "first_seen_excel_row": 4222,
+            "type": "in_file_duplicate"
+        },
+        {
+            "excel_row": 14510,
+            "customer_id": "CUST-0005843",
+            "first_seen_excel_row": 6841,
+            "type": "in_file_duplicate"
+        },
+        {
+            "excel_row": 14706,
+            "customer_id": "CUST-0004355",
+            "first_seen_excel_row": 5353,
+            "type": "in_file_duplicate"
+        }
+    ],
+    "generation_stats": {
+        "duration_seconds": 107.62,
+        "filesize_mb": 48.64,
+        "peak_memory_mb": 10,
+        "injected_duplicates_count": 2500,
+        "injected_validation_errors_count": 2500,
+        "injected_db_duplicates_count": 997
+    }
+}

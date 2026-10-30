@@ -305,4 +305,329 @@ describe('ImportModalComponent', () => {
     const compiled = fixture.nativeElement as HTMLElement;
     expect(compiled.textContent).toContain('Failed to download sample template.');
   });
+
+  it('should display "Not required — 0 eligible rows" and 0% bar when all 20 rows are duplicates', () => {
+    const mockDetailAllDuplicates: ImportDetail = {
+      id: 6,
+      filename: 'sample_import_template.xlsx',
+      file_path: 'imports/sample.xlsx',
+      status: 'Completed with Errors',
+      total_rows: 20,
+      total_rows_known: true,
+      processed_rows: 20,
+      validated_rows: 20,
+      valid_rows: 0,
+      invalid_rows: 0,
+      duplicate_rows: 20,
+      saved_rows: 0,
+      rejected_rows: 20,
+      progress_percentage: 100.0,
+      stages: {
+        upload: { status: 'completed', percentage: 100.0 },
+        validation: {
+          status: 'completed',
+          checked_rows: 20,
+          total_rows: 20,
+          valid_rows: 0,
+          invalid_rows: 0,
+          duplicate_rows: 20,
+          percentage: 100.0,
+          indeterminate: false,
+        },
+        import: {
+          status: 'completed',
+          saved_rows: 0,
+          eligible_rows: 0,
+          percentage: 0.0,
+          indeterminate: false,
+        },
+      },
+      started_at: '2026-10-29T21:28:52.000Z',
+      completed_at: '2026-10-29T21:28:52.000Z',
+      duration_seconds: 0.74,
+      failure_reason: null,
+      created_at: '2026-10-29T21:28:51.000Z',
+      updated_at: '2026-10-29T21:28:52.000Z',
+    };
+
+    vi.spyOn(apiService, 'getImport').mockReturnValue(of(mockDetailAllDuplicates));
+    component.loadImportDetails(6);
+    fixture.detectChanges();
+
+    expect(component.getStageStatusClass('upload')).toBe('stage-completed');
+    expect(component.getStageStatusClass('validation')).toBe('stage-completed');
+    expect(component.getStageStatusClass('import')).toBe('stage-completed');
+    expect(component.getValidationBadgeText()).toBe('100% Verified');
+    expect(component.getImportBadgeText()).toBe('Not required — 0 eligible rows');
+    expect(component.getImportProgressWidth()).toBe(0);
+
+    const compiled = fixture.nativeElement as HTMLElement;
+    expect(compiled.textContent).toContain('Not required — 0 eligible rows');
+    expect(compiled.textContent).not.toContain('100% Saved');
+  });
+
+  it('should display "Not required — 0 eligible rows" and 0% bar when all 20 rows are invalid', () => {
+    const mockDetailAllInvalid: ImportDetail = {
+      id: 7,
+      filename: 'invalid_data.xlsx',
+      file_path: 'imports/invalid.xlsx',
+      status: 'Completed with Errors',
+      total_rows: 20,
+      total_rows_known: true,
+      processed_rows: 20,
+      validated_rows: 20,
+      valid_rows: 0,
+      invalid_rows: 20,
+      duplicate_rows: 0,
+      saved_rows: 0,
+      rejected_rows: 20,
+      progress_percentage: 100.0,
+      stages: {
+        upload: { status: 'completed', percentage: 100.0 },
+        validation: {
+          status: 'completed',
+          checked_rows: 20,
+          total_rows: 20,
+          valid_rows: 0,
+          invalid_rows: 20,
+          duplicate_rows: 0,
+          percentage: 100.0,
+          indeterminate: false,
+        },
+        import: {
+          status: 'completed',
+          saved_rows: 0,
+          eligible_rows: 0,
+          percentage: 0.0,
+          indeterminate: false,
+        },
+      },
+      started_at: '2026-10-29T21:30:00.000Z',
+      completed_at: '2026-10-29T21:30:01.000Z',
+      duration_seconds: 0.8,
+      failure_reason: null,
+      created_at: '2026-10-29T21:30:00.000Z',
+      updated_at: '2026-10-29T21:30:01.000Z',
+    };
+
+    vi.spyOn(apiService, 'getImport').mockReturnValue(of(mockDetailAllInvalid));
+    component.loadImportDetails(7);
+    fixture.detectChanges();
+
+    expect(component.getValidationBadgeText()).toBe('100% Verified');
+    expect(component.getImportBadgeText()).toBe('Not required — 0 eligible rows');
+    expect(component.getImportProgressWidth()).toBe(0);
+  });
+
+  it('should display 50% import progress when 10 of 20 eligible rows are saved while processing', () => {
+    const mockDetailProcessing: ImportDetail = {
+      id: 8,
+      filename: 'midway.xlsx',
+      file_path: 'imports/midway.xlsx',
+      status: 'Processing',
+      total_rows: 20,
+      total_rows_known: true,
+      processed_rows: 20,
+      validated_rows: 20,
+      valid_rows: 20,
+      invalid_rows: 0,
+      duplicate_rows: 0,
+      saved_rows: 10,
+      rejected_rows: 0,
+      progress_percentage: 99.9,
+      stages: {
+        upload: { status: 'completed', percentage: 100.0 },
+        validation: {
+          status: 'processing',
+          checked_rows: 20,
+          total_rows: 20,
+          valid_rows: 20,
+          invalid_rows: 0,
+          duplicate_rows: 0,
+          percentage: 99.9,
+          indeterminate: false,
+        },
+        import: {
+          status: 'processing',
+          saved_rows: 10,
+          eligible_rows: 20,
+          percentage: 50.0,
+          indeterminate: false,
+        },
+      },
+      started_at: '2026-10-29T21:35:00.000Z',
+      completed_at: null,
+      duration_seconds: null,
+      failure_reason: null,
+      created_at: '2026-10-29T21:35:00.000Z',
+      updated_at: '2026-10-29T21:35:02.000Z',
+    };
+
+    vi.spyOn(apiService, 'getImport').mockReturnValue(of(mockDetailProcessing));
+    component.loadImportDetails(8);
+    fixture.detectChanges();
+
+    expect(component.getImportBadgeText()).toBe('50%');
+    expect(component.getImportProgressWidth()).toBe(50.0);
+    expect(component.getImportBadgeClass()).toBe('badge-processing');
+  });
+
+  it('should display "100% Saved" when all 20 eligible rows are saved and import completed', () => {
+    const mockDetailSuccess: ImportDetail = {
+      id: 9,
+      filename: 'all_saved.xlsx',
+      file_path: 'imports/all_saved.xlsx',
+      status: 'Completed',
+      total_rows: 20,
+      total_rows_known: true,
+      processed_rows: 20,
+      validated_rows: 20,
+      valid_rows: 20,
+      invalid_rows: 0,
+      duplicate_rows: 0,
+      saved_rows: 20,
+      rejected_rows: 0,
+      progress_percentage: 100.0,
+      stages: {
+        upload: { status: 'completed', percentage: 100.0 },
+        validation: {
+          status: 'completed',
+          checked_rows: 20,
+          total_rows: 20,
+          valid_rows: 20,
+          invalid_rows: 0,
+          duplicate_rows: 0,
+          percentage: 100.0,
+          indeterminate: false,
+        },
+        import: {
+          status: 'completed',
+          saved_rows: 20,
+          eligible_rows: 20,
+          percentage: 100.0,
+          indeterminate: false,
+        },
+      },
+      started_at: '2026-10-29T21:40:00.000Z',
+      completed_at: '2026-10-29T21:40:02.000Z',
+      duration_seconds: 1.5,
+      failure_reason: null,
+      created_at: '2026-10-29T21:40:00.000Z',
+      updated_at: '2026-10-29T21:40:02.000Z',
+    };
+
+    vi.spyOn(apiService, 'getImport').mockReturnValue(of(mockDetailSuccess));
+    component.loadImportDetails(9);
+    fixture.detectChanges();
+
+    expect(component.getImportBadgeText()).toBe('100% Saved');
+    expect(component.getImportProgressWidth()).toBe(100.0);
+    expect(component.getImportBadgeClass()).toBe('badge-completed');
+  });
+
+  it('should display failure state and not claim 100% Saved for partial save followed by failure', () => {
+    const mockDetailFailed: ImportDetail = {
+      id: 10,
+      filename: 'crashed.xlsx',
+      file_path: 'imports/crashed.xlsx',
+      status: 'Failed',
+      total_rows: 20,
+      total_rows_known: true,
+      processed_rows: 20,
+      validated_rows: 20,
+      valid_rows: 20,
+      invalid_rows: 0,
+      duplicate_rows: 0,
+      saved_rows: 10,
+      rejected_rows: 0,
+      progress_percentage: 50.0,
+      stages: {
+        upload: { status: 'completed', percentage: 100.0 },
+        validation: {
+          status: 'failed',
+          checked_rows: 20,
+          total_rows: 20,
+          valid_rows: 20,
+          invalid_rows: 0,
+          duplicate_rows: 0,
+          percentage: 100.0,
+          indeterminate: false,
+        },
+        import: {
+          status: 'failed',
+          saved_rows: 10,
+          eligible_rows: 20,
+          percentage: 50.0,
+          indeterminate: false,
+        },
+      },
+      started_at: '2026-10-29T21:45:00.000Z',
+      completed_at: '2026-10-29T21:45:05.000Z',
+      duration_seconds: 5.0,
+      failure_reason: 'Database connection lost',
+      created_at: '2026-10-29T21:45:00.000Z',
+      updated_at: '2026-10-29T21:45:05.000Z',
+    };
+
+    vi.spyOn(apiService, 'getImport').mockReturnValue(of(mockDetailFailed));
+    component.loadImportDetails(10);
+    fixture.detectChanges();
+
+    expect(component.getImportBadgeText()).toBe('Failed');
+    expect(component.getImportBadgeClass()).toBe('badge-failed');
+    expect(component.getStageStatusClass('import')).toBe('stage-failed');
+    expect(component.getImportProgressWidth()).toBe(50.0);
+  });
+
+  it('should display "Not required — 0 eligible rows" for genuine zero-data-row file', () => {
+    const mockDetailZeroRow: ImportDetail = {
+      id: 11,
+      filename: 'empty.xlsx',
+      file_path: 'imports/empty.xlsx',
+      status: 'Completed',
+      total_rows: 0,
+      total_rows_known: true,
+      processed_rows: 0,
+      validated_rows: 0,
+      valid_rows: 0,
+      invalid_rows: 0,
+      duplicate_rows: 0,
+      saved_rows: 0,
+      rejected_rows: 0,
+      progress_percentage: 100.0,
+      stages: {
+        upload: { status: 'completed', percentage: 100.0 },
+        validation: {
+          status: 'completed',
+          checked_rows: 0,
+          total_rows: 0,
+          valid_rows: 0,
+          invalid_rows: 0,
+          duplicate_rows: 0,
+          percentage: 100.0,
+          indeterminate: false,
+        },
+        import: {
+          status: 'completed',
+          saved_rows: 0,
+          eligible_rows: 0,
+          percentage: 0.0,
+          indeterminate: false,
+        },
+      },
+      started_at: '2026-10-29T21:50:00.000Z',
+      completed_at: '2026-10-29T21:50:01.000Z',
+      duration_seconds: 0.5,
+      failure_reason: null,
+      created_at: '2026-10-29T21:50:00.000Z',
+      updated_at: '2026-10-29T21:50:01.000Z',
+    };
+
+    vi.spyOn(apiService, 'getImport').mockReturnValue(of(mockDetailZeroRow));
+    component.loadImportDetails(11);
+    fixture.detectChanges();
+
+    expect(component.getImportBadgeText()).toBe('Not required — 0 eligible rows');
+    expect(component.getImportProgressWidth()).toBe(0);
+  });
 });

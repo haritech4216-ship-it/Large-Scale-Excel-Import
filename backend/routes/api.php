@@ -2,6 +2,7 @@
 
 use App\Http\Controllers\Api\AuthController;
 use App\Http\Controllers\Api\ImportController;
+use App\Http\Controllers\Api\ImportedDataController;
 use Illuminate\Support\Facades\Route;
 
 // Public authentication and template routes
@@ -23,4 +24,8 @@ Route::middleware('auth:sanctum')->group(function () {
         Route::get('/{id}/errors', [ImportController::class, 'errors'])->whereNumber('id')->name('imports.errors');
         Route::get('/{id}/errors.csv', [ImportController::class, 'downloadErrorsCsv'])->whereNumber('id')->name('imports.errors.csv');
     });
+
+    // Imported data management (listing, searching, scoped deletion)
+    Route::get('/imported-data', [ImportedDataController::class, 'index'])->name('imported-data.index');
+    Route::delete('/imported-data', [ImportedDataController::class, 'destroy'])->name('imported-data.destroy');
 });

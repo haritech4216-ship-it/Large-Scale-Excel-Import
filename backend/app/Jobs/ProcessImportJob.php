@@ -265,7 +265,7 @@ class ProcessImportJob implements ShouldQueue
                 $invalidErrors[] = [
                     'import_id' => $import->id,
                     'excel_row' => $excelRow,
-                    'customer_id' => $validation['customer_id'],
+                    'customer_id' => $this->sanitizeCustomerIdForErrorPersistence($validation['customer_id']),
                     'rejection_reason' => $validation['error'],
                     'created_at' => now(),
                     'updated_at' => now(),
@@ -348,10 +348,16 @@ class ProcessImportJob implements ShouldQueue
 
             $rowErrors = array_merge($invalidErrors, $duplicateErrors);
 
-            // Bulk insert row errors
+            // Bulk insert row errors with defensive customer_id length sanitization
             if (! empty($rowErrors)) {
+                $persistedErrors = array_map(function (array $errorRow): array {
+                    $errorRow['customer_id'] = $this->sanitizeCustomerIdForErrorPersistence($errorRow['customer_id'] ?? null);
+
+                    return $errorRow;
+                }, $rowErrors);
+
                 // Insert in batches of 500 to stay well within SQL parameter limits
-                foreach (array_chunk($rowErrors, 500) as $errorBatch) {
+                foreach (array_chunk($persistedErrors, 500) as $errorBatch) {
                     ImportRowError::insert($errorBatch);
                 }
             }
@@ -474,5 +480,23 @@ class ProcessImportJob implements ShouldQueue
         $sanitized = preg_replace('/\/home\/[^\s:]+/', '[server-path]', $sanitized);
 
         return substr((string) $sanitized, 0, 500);
+    }
+
+    /**
+     * Defensively normalize customer ID for rejected-row error persistence.
+     * Ensures customer_id is NULL or safely truncated within VARCHAR(100) limits using multibyte-safe truncation.
+     */
+    public function sanitizeCustomerIdForErrorPersistence(mixed $customerId): ?string
+    {
+        if ($customerId === null) {
+            return null;
+        }
+
+        $str = trim((string) $customerId);
+        if ($str === '') {
+            return null;
+        }
+
+        return mb_strlen($str) > 100 ? mb_substr($str, 0, 100) : $str;
     }
 }

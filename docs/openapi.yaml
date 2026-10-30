@@ -18,6 +18,8 @@ tags:
     description: Session token issuance, revocation, and identity verification
   - name: Imports
     description: Spreadsheet upload, lifecycle tracking, error reporting, and CSV export
+  - name: Imported Data
+    description: Browse, search, and safely delete imported customer records
 
 paths:
   /auth/login:
@@ -356,6 +358,72 @@ paths:
               schema:
                 type: string
                 format: binary
+
+  /imported-data:
+    get:
+      tags:
+        - Imported Data
+      summary: List and search imported customer records
+      description: |
+        Returns paginated customer entities imported from Excel spreadsheets,
+        scoped strictly to imports belonging to the authenticated user.
+      operationId: getImportedData
+      security:
+        - BearerAuth: []
+      parameters:
+        - name: page
+          in: query
+          schema:
+            type: integer
+            default: 1
+        - name: per_page
+          in: query
+          schema:
+            type: integer
+            default: 15
+        - name: search
+          in: query
+          description: Search term matching customer ID, name, email, company, city, or country
+          schema:
+            type: string
+      responses:
+        '200':
+          description: Paginated imported customer data and total eligible deletion count
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+    delete:
+      tags:
+        - Imported Data
+      summary: Delete all imported records within user scope
+      description: |
+        Safely deletes all customer records attributed to the authenticated user's imports.
+        Requires explicit confirmation phrase 'DELETE ALL' in the request payload.
+        Never truncates tables, leaves unrelated/pre-existing records intact, and preserves import history.
+      operationId: deleteAllImportedData
+      security:
+        - BearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required:
+                - confirmation
+              properties:
+                confirmation:
+                  type: string
+                  example: DELETE ALL
+                import_id:
+                  type: integer
+                  nullable: true
+      responses:
+        '200':
+          description: Records deleted successfully
+        '422':
+          description: Validation error (confirmation string missing or incorrect)
+        '401':
+          $ref: '#/components/responses/Unauthorized'
 
 components:
   securitySchemes:

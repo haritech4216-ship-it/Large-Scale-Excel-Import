@@ -401,12 +401,26 @@ export class ImportModalComponent implements OnInit, OnDestroy {
     if (detail.status === 'Failed') return 'Failed';
 
     const impStage = detail.stages?.import;
+    const eligibleRows = impStage?.eligible_rows ?? detail.valid_rows ?? 0;
+    const savedRows = detail.saved_rows ?? impStage?.saved_rows ?? 0;
+
     if (detail.status === 'Completed' || detail.status === 'Completed with Errors') {
-      return '100% Saved';
+      if (eligibleRows === 0) {
+        return 'Not required — 0 eligible rows';
+      }
+      if (savedRows >= eligibleRows) {
+        return '100% Saved';
+      }
+      const pct = impStage?.percentage ?? Math.round((savedRows / eligibleRows) * 100);
+      return `${pct}% Saved`;
     }
 
     if (impStage?.indeterminate) {
       return 'Preparing...';
+    }
+
+    if (detail.status === 'Processing' && detail.stages?.validation?.status === 'completed' && eligibleRows === 0) {
+      return 'Not required — 0 eligible rows';
     }
 
     return `${impStage?.percentage ?? 0}%`;
@@ -421,5 +435,20 @@ export class ImportModalComponent implements OnInit, OnDestroy {
       return 'badge-completed';
     }
     return 'badge-processing';
+  }
+
+  getImportProgressWidth(): number {
+    const detail = this.importDetail();
+    if (!detail) return 0;
+    if (detail.stages?.import?.percentage !== undefined) {
+      return detail.stages.import.percentage;
+    }
+    const eligibleRows = detail.stages?.import?.eligible_rows ?? detail.valid_rows ?? 0;
+    if (eligibleRows === 0) return 0;
+    const savedRows = detail.saved_rows ?? 0;
+    if (detail.status === 'Completed' || detail.status === 'Completed with Errors') {
+      return savedRows >= eligibleRows ? 100 : Math.round((savedRows / eligibleRows) * 100);
+    }
+    return 0;
   }
 }

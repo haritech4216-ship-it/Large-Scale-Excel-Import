@@ -1,228 +1,287 @@
 # Large-Scale Excel Import Engine
 
-An asynchronous web application built to upload, validate, and import `.xlsx` spreadsheets containing up to 500,000 records per upload with bounded memory consumption, row-level validation, multi-tier duplicate prevention, controlled failure recovery, and authenticated per-user authorization.
+An asynchronous web application built with Laravel and Angular to upload, validate, and import `.xlsx` spreadsheets containing up to 500,000 records per upload with streaming memory efficiency, row-level validation, multi-tier duplicate prevention, idempotent failure recovery, and authenticated per-user data isolation.
 
 ---
 
-## 1. Technology Stack
+## 1. Project Overview
 
-* **Backend:** Laravel 13.x (PHP 8.5.12, Composer 2.10.3)
-* **Frontend:** Angular 22.x (TypeScript 6.0, Node.js 24.22.2 LTS, npm 11.19.1)
-* **Database:** Oracle MySQL 8.x (Standard port `3306` or custom configured port)
-* **Queue Driver:** Laravel Database Queue (`jobs`, `job_batches`, `failed_jobs`)
-* **Excel Streaming:** OpenSpout 5 (zero-DOM row-by-row streaming)
-* **Authentication:** Laravel Sanctum 4.x (Bearer personal access tokens)
-* **API Documentation:** OpenAPI 3.0.3 & Swagger UI
+* **High-Volume Asynchronous Ingestion:** Streams `.xlsx` spreadsheets up to 500,000 rows using OpenSpout without buffering complete workbook DOM trees into memory.
+* **15-Field Row Validation:** Validates 15 customer attributes (11 required, 4 optional) with date serial conversion and flexible header normalization.
+* **Multi-Tier Duplicate Prevention:** Detects in-file duplicates via in-memory tracking, database duplicates via indexed queries, and concurrency races via transactional sub-batch fallbacks.
+* **Three-Stage Real-Time Progress:** Angular interface displays separate progress tracking for file upload, validation pipeline, and database insertion with modal close/reopen capability.
+* **Idempotent Queue Processing:** Sequential chunk processing (default 1,000 rows/chunk, 500 rows/insert) with atomic chunk claims and automated stale import recovery.
+* **Audit & Error Reporting:** Paginated row-level error reporting and formula-injection-protected CSV export.
 
 ---
 
-## 2. Workspace Directory Structure
+## 2. Technology Stack
+
+* **Backend Framework:** Laravel 13 (`laravel/framework` `^13.17`, v13.39.0 locked)
+* **Frontend Framework:** Angular 22 (`@angular/core` `^22.2.0`)
+* **TypeScript:** TypeScript 6 (`~6.0.2`)
+* **Reactive Extensions:** RxJS (`~7.8.0`)
+* **Excel Engine:** OpenSpout 5 (`openspout/openspout` `^5.0`, v5.13.0 locked) — used for streaming XLSX reading, sample template generation, and benchmark creation
+* **API Authentication:** Laravel Sanctum 4 (`laravel/sanctum` `^4.3`, v4.3.2 locked)
+* **Queue Engine:** Laravel Database Queue Driver (`jobs`, `failed_jobs`)
+* **Database:** MySQL Server 8.0+ / 8.4 LTS (InnoDB engine)
+* **API Specification:** OpenAPI 3.0.3 & Swagger UI
+
+---
+
+## 3. System Requirements
+
+Ensure your environment meets the following requirements:
+
+* **PHP:** `^8.3` (tested with PHP `8.5`)
+  * Required Extensions: `pdo_mysql`, `zip`, `mbstring`, `xml`, `filter`, `openssl`, `tokenizer`, `ctype`
+* **Composer:** Composer `2.x`
+* **Node.js:** Node.js `20.x`, `22.x`, or `24.x` LTS
+* **npm:** npm `10.x` or `11.x`
+* **Database:** MySQL Server 8.0+ or 8.4 LTS (InnoDB with `utf8mb4`)
+
+---
+
+## 4. Project Structure
 
 ```text
 import/
-├── backend/       # Laravel 13 REST API application
-├── frontend/      # Angular 22 standalone client application
-├── docs/          # Architecture notes and OpenAPI specification
-│   ├── architecture.md
-│   └── openapi.yaml
-├── scripts/       # Optional local MySQL helper scripts
-│   ├── mysql-start.sh
-│   ├── mysql-stop.sh
-│   ├── mysql-status.sh
-│   └── mysql-cli.sh
-├── README.md      # Root project documentation
-└── .gitignore     # Root Git ignore rules
+├── backend/                  # Laravel 13 REST API application
+│   ├── app/
+│   │   ├── Console/Commands/ # Stale import recovery & 500k benchmark commands
+│   │   ├── Http/Controllers/ # Auth, Import, and ImportedData API controllers
+│   │   ├── Jobs/             # Asynchronous streaming chunk import jobs
+│   │   ├── Models/           # Eloquent models (Customer, Import, ImportChunk, etc.)
+│   │   └── Services/         # OpenSpout streaming parser & row validation services
+│   ├── config/               # Application configuration (including excel_import.php)
+│   ├── database/             # Migrations, seeders, and factories
+│   ├── routes/               # API routes (api.php)
+│   └── tests/                # PHPUnit feature and unit test suites
+├── frontend/                 # Angular 22 standalone client application
+│   ├── src/app/
+│   │   ├── components/       # Login, Imports history, Import modal, Imported data
+│   │   ├── guards/           # Sanctum authentication & route guards
+│   │   ├── interceptors/     # Bearer token HTTP interceptor
+│   │   ├── models/           # TypeScript interfaces & types
+│   │   └── services/         # API client & modal state services
+│   └── dist/                 # Production compiled assets (dist/frontend/browser)
+├── docs/                     # Technical documentation
+│   ├── architecture.md       # Architectural deep-dive & design choices
+│   ├── openapi.yaml          # OpenAPI 3.0.3 specification
+│   └── 500K_BENCHMARK.md     # Measured 500,000-row performance benchmark report
+└── README.md                 # Project developer setup guide
 ```
 
 ---
 
-## 3. System Prerequisites
+## 5. Installation and Configuration
 
-* **PHP:** `^8.3` (tested with PHP `8.5.12`) with extensions: `pdo_mysql`, `zip`, `mbstring`, `xml`
-* **Node.js:** Node.js 24 LTS (tested with `v24.22.2`) & npm `11.19.1`
-* **Composer:** Composer `2.x` (tested with `2.10.3`)
-* **Database:** Oracle MySQL Server 8.0+ or 8.4 LTS
-
----
-
-## 4. Database Setup & Configuration (Standard Oracle MySQL 8.x)
-
-The application uses standard Oracle MySQL. Follow these steps to set up the dedicated database and application user.
-
-### Step A: Verify or Install MySQL Server
-Check if MySQL is already installed and running:
+### Step 1: Clone Repository
 ```bash
-# Verify daemon status
-mysqladmin -u root -p ping 2>/dev/null || sudo systemctl status mysql
+git clone <repository-url>
+cd import
 ```
-If MySQL is not yet installed on your system:
-* **Ubuntu / Debian:**
-  ```bash
-  sudo apt update && sudo apt install -y mysql-server
-  sudo systemctl enable --now mysql
-  ```
-* **macOS (Homebrew):**
-  ```bash
-  brew install mysql && brew services start mysql
-  ```
 
-### Step B: Create Dedicated Database and Application User
-Connect to MySQL as administrative user (`root` or privileged account) and create the dedicated assignment database and user:
+### Step 2: Install Backend Dependencies
+Navigate to the `backend/` directory and install PHP packages:
+```bash
+cd backend
+composer install
+```
+
+### Step 3: Configure Environment
+Copy the example environment file and generate the application encryption key:
+```bash
+cp .env.example .env
+php artisan key:generate
+```
+
+Configure your database connection in `backend/.env`:
+```env
+DB_CONNECTION=mysql
+DB_HOST=127.0.0.1
+DB_PORT=3306
+DB_DATABASE=excel_import_db
+DB_USERNAME=your_database_user
+DB_PASSWORD=your_database_password
+
+QUEUE_CONNECTION=database
+```
+
+> **File Upload Configuration:** A 500,000-row `.xlsx` spreadsheet is approximately 40 MB. In `backend/.env`, `EXCEL_IMPORT_MAX_SIZE_KB` defaults to `102400` (100 MB). To allow browser uploads of large files, PHP runtime upload limits must exceed the file size (`upload_max_filesize=128M`, `post_max_size=128M`, `memory_limit=512M`).
+
+### Step 4: Install Frontend Dependencies
+In a separate terminal, navigate to the `frontend/` directory and install npm packages:
+```bash
+cd frontend
+npm install
+```
+
+---
+
+## 6. Database Setup
+
+### Step 1: Create Database
+Ensure your MySQL server is running, then create the database:
 ```sql
--- Create dedicated database with full UTF-8 Unicode support
 CREATE DATABASE IF NOT EXISTS excel_import_db
   CHARACTER SET utf8mb4
   COLLATE utf8mb4_unicode_ci;
+```
 
--- Note on MySQL Host Accounts:
--- MySQL treats '127.0.0.1' (TCP loopback) and 'localhost' (Unix socket) as distinct accounts.
--- Create both accounts explicitly to support both TCP connections (used by Laravel's DB_HOST=127.0.0.1)
--- and local socket-based CLI connections.
-
-CREATE USER IF NOT EXISTS 'excel_user'@'127.0.0.1' IDENTIFIED BY 'your_secure_password';
-CREATE USER IF NOT EXISTS 'excel_user'@'localhost' IDENTIFIED BY 'your_secure_password';
-
--- Grant required operational privileges strictly to the assignment database
-GRANT ALL PRIVILEGES ON excel_import_db.* TO 'excel_user'@'127.0.0.1';
+*(Optional)* If you prefer a dedicated application user for local development:
+```sql
+CREATE USER IF NOT EXISTS 'excel_user'@'localhost' IDENTIFIED BY 'your_password';
 GRANT ALL PRIVILEGES ON excel_import_db.* TO 'excel_user'@'localhost';
 FLUSH PRIVILEGES;
 ```
 
-### Step C: Configure `backend/.env`
-1. If `.env` does not exist in `backend/`, copy `.env.example`:
-   ```bash
-   cp backend/.env.example backend/.env
-   ```
-2. Configure database settings to match your MySQL server:
-   ```env
-   DB_CONNECTION=mysql
-   DB_HOST=127.0.0.1
-   DB_PORT=3306
-   DB_DATABASE=excel_import_db
-   DB_USERNAME=excel_user
-   DB_PASSWORD=your_secure_password
-   ```
-   > **Custom Port / Socket:** If your development setup uses a non-default port (e.g. `3307`) or a custom unix socket, set `DB_PORT` and `DB_SOCKET` accordingly.
-
-### Step D: Run Database Migrations & Initial Seed
-Run the 9 database migrations to establish all required tables, indexes, constraints, and queue tables:
+### Step 2: Run Migrations
+From the `backend/` directory, run all database migrations:
 ```bash
 cd backend
-php8.5 artisan migrate
-```
-Seed the initial authorized application user (required for login and authenticated import workflows):
-```bash
-php8.5 artisan db:seed
+php artisan migrate
 ```
 
-### Optional: Local User-Space Daemon Scripts (`scripts/`)
-The `scripts/` directory contains optional convenience wrappers (`mysql-start.sh`, `mysql-status.sh`, `mysql-cli.sh`, `mysql-stop.sh`) intended for environments utilizing an isolated user-space MySQL daemon (e.g. to coexist with a separate system service without port collisions). Developers using a standard system-wide MySQL service do not need these scripts.
+This creates the tables for users, cache, queue jobs (`jobs`, `failed_jobs`), imports, import chunks, import row errors, and customers.
+
+### Step 3: Seed Initial User
+Seed the authorized application user required for authentication:
+```bash
+php artisan db:seed
+```
+
+* **Default User Email:** `admin@example.com`
+* **Default Password:** `Password123!`
+
+> [!SECURITY]
+> The seeded admin credentials above are provided solely for local development and testing evaluation. In any shared, staging, or production environment, immediately change or rotate these credentials.
 
 ---
 
-## 5. Backend & Queue Worker Setup
+## 7. Running the Application
 
-### Run Backend API Server
-Because default system PHP CLI configurations (`php.ini`) default to `upload_max_filesize = 2M` and `post_max_size = 8M`, pass the following inline configuration directives when launching the development server to accept uploads up to the configured 100 MB limit:
+Running the application locally requires three processes: the backend API server, the Laravel queue worker, and the Angular frontend.
+
+### 1. Backend API Server
+Start the Laravel development server. Pass upload configuration directives to accommodate large files:
 ```bash
 cd backend
-php8.5 -d upload_max_filesize=128M -d post_max_size=128M -d memory_limit=512M artisan serve --port=8000
+php -d upload_max_filesize=128M -d post_max_size=128M -d memory_limit=512M artisan serve --port=8000
 ```
+The REST API will be available at `http://127.0.0.1:8000/api`.
 
-> **Web Server Limits (Production / Staging):** When serving via Nginx or Apache/PHP-FPM, align web server thresholds to avoid HTTP 413: `client_max_body_size 128M;`, `upload_max_filesize = 128M`, and `post_max_size = 128M`.
+> **Production Note:** When serving behind Nginx, Apache, or PHP-FPM, align web server directives accordingly (`client_max_body_size 128M;`, `upload_max_filesize = 128M`, and `post_max_size = 128M`).
 
-### Run Queue Worker Daemon
-Run the background queue worker to process asynchronous spreadsheet chunk ingestion:
+### 2. Laravel Queue Worker
+In a second terminal, start the queue worker to process asynchronous spreadsheet imports:
 ```bash
 cd backend
-php8.5 artisan queue:work --queue=default --timeout=3600 --tries=3
+php artisan queue:work --timeout=3600 --tries=3
 ```
 
----
-
-## 6. Frontend Setup & Startup
-
-Run using Node 24 LTS via NVM:
+### 3. Angular Frontend
+In a third terminal, start the Angular development server:
 ```bash
 cd frontend
-export PATH="/home/harishankar/.nvm/versions/node/v24.22.2/bin:$PATH" # or: nvm use 24
-
-# Start Angular development server (http://localhost:4200)
 npm start
-
-# Run production build
-npm run build
 ```
+Open your browser at `http://localhost:4200` and sign in using the seeded credentials (`admin@example.com` / `Password123!`).
 
 ---
 
-## 7. Automated Testing
+## 8. Running Tests
 
-### Backend Automated Test Suite
-Run the 47 automated tests (feature tests, validator unit tests, authentication, and authorization tests). Tests automatically inherit database connection settings from `.env` and utilize `DatabaseTransactions` to roll back all test mutations:
+### Backend Test Suite (PHPUnit)
+The backend test suite covers authentication, authorization, streaming ingestion, duplicate race conditions, queue retries, and stale job recovery:
 ```bash
 cd backend
-php8.5 artisan test
+php artisan test
 ```
+*Snapshot: 88 passed (495 assertions).*
 
-> **Optional: Dedicated Test Database Isolation:**
-> By default, tests connect to the database defined in `backend/.env` and roll back transaction changes at test completion. If you want automated tests physically isolated in a separate database from your development data:
-> 1. Create a dedicated test database in MySQL:
->    ```sql
->    CREATE DATABASE IF NOT EXISTS excel_import_test_db CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci;
->    GRANT ALL PRIVILEGES ON excel_import_test_db.* TO 'excel_user'@'127.0.0.1';
->    GRANT ALL PRIVILEGES ON excel_import_test_db.* TO 'excel_user'@'localhost';
->    FLUSH PRIVILEGES;
->    ```
-> 2. Create `backend/.env.testing` containing:
->    ```env
->    DB_DATABASE=excel_import_test_db
->    ```
-> 3. Run migrations on the test database:
->    ```bash
->    php8.5 artisan migrate --env=testing
->    ```
-> Once configured, running `php8.5 artisan test` automatically targets `excel_import_test_db`.
+> **Dedicated Test Database (Optional):** To isolate tests from development data, set `DB_DATABASE=excel_import_test_db` in `backend/.env.testing` and run `php artisan migrate --env=testing`. Subsequent `php artisan test` runs will automatically target the test database.
 
-### Frontend Automated Test Suite
-Run the 29 Angular component, service, and interceptor unit tests via Vitest:
+### Frontend Test Suite (Vitest)
+The frontend test suite covers components, services, route guards, interceptors, and modal progress logic:
 ```bash
 cd frontend
-export PATH="/home/harishankar/.nvm/versions/node/v24.22.2/bin:$PATH"
 npm test -- --watch=false
 ```
+*Snapshot: 9 test files passed, 83 passed.*
+
+### Frontend Production Build
+To verify the production compilation:
+```bash
+cd frontend
+npm run build
+```
+Compiled production assets are output to `frontend/dist/frontend/browser`.
 
 ---
 
-## 8. Interactive API Documentation (Swagger UI)
+## 9. API Documentation
 
-Interactive Swagger UI and the OpenAPI 3.0.3 specification are integrated directly into the Laravel application:
+Interactive Swagger UI and the OpenAPI 3.0.3 specification are integrated into the application:
 
-* **Interactive Swagger UI:** [`http://127.0.0.1:8000/docs`](http://127.0.0.1:8000/docs)
-* **OpenAPI 3.0.3 Specification (HTTP):** [`http://127.0.0.1:8000/docs/openapi.yaml`](http://127.0.0.1:8000/docs/openapi.yaml)
-* **OpenAPI 3.0.3 Specification (Local File):** [`docs/openapi.yaml`](docs/openapi.yaml)
+* **Interactive Swagger UI:** `http://127.0.0.1:8000/docs`
+* **OpenAPI 3.0.3 Specification (HTTP):** `http://127.0.0.1:8000/docs/openapi.yaml`
+* **OpenAPI 3.0.3 Specification (File):** [`docs/openapi.yaml`](docs/openapi.yaml)
 
 ### Authenticating in Swagger UI
-All import endpoints require a Sanctum Bearer token:
-1. Open [`http://127.0.0.1:8000/docs`](http://127.0.0.1:8000/docs) in your browser.
-2. Under **Authentication**, expand `POST /auth/login`, click **Try it out**, enter registered user credentials, and click **Execute**.
-3. Copy the plain-text `token` string returned in the JSON response.
-4. Click the green **Authorize** button at the top-right of the page.
-5. In the `BearerAuth` value field, paste the token and click **Authorize**, then **Close**.
-6. All subsequent requests issued via **Try it out** will automatically include the `Authorization: Bearer <token>` header.
-
-> **Caution:** The **Try it out** feature issues real HTTP requests against the backend database. Executing `POST /imports` will store files and dispatch actual background import jobs.
-
-### Offline & Alternative Tools
-* **CDN Requirement:** The `/docs` Swagger UI page loads pinned official bundles from jsdelivr (`swagger-ui-dist@5.18.2`). Interactive browser viewing requires internet access from the host machine.
-* **Offline Alternative:** If running in an environment without internet access, import `docs/openapi.yaml` directly into **Postman** (File → Import) or view it in VS Code using standard OpenAPI viewer extensions.
+1. Open `http://127.0.0.1:8000/docs`.
+2. Under **Authentication**, expand `POST /auth/login`, click **Try it out**, enter your credentials, and click **Execute**.
+3. Copy the plain-text `token` string returned in the response.
+4. Click the **Authorize** button at the top-right.
+5. In the `BearerAuth` field, enter the token and click **Authorize**. Subsequent requests will include the Bearer token header.
 
 ---
 
-## 9. Security & Architecture Invariants
+## 10. 500K Benchmark Execution & Memory Dynamics
 
-* **Isolated Database Daemon / Port:** Supports standard MySQL on port `3306` while also cleanly supporting isolated daemons on port `3307`. System MariaDB and `/var/lib/mysql` remain untouched.
-* **Per-User Ownership Isolation:** All import history, status lookups, validation errors, and CSV downloads are strictly scoped to the authenticated user. Cross-user access returns HTTP 403.
-* **Formula Injection Sanitization:** Downloaded error CSV files prefix formula trigger characters (`=`, `+`, `-`, `@`, `\t`, `\r`) with a single quote to prevent spreadsheet injection.
-* **Error Sanitization:** Database credentials and internal file paths are stripped from error messages before storage or API serialization.
-* **Secrets Protection:** Environment files (`.env`) and credentials are systematically excluded from version control.
+The repository provides Artisan commands for generating and benchmarking a 500,000-record Excel spreadsheet using streaming ingestion.
+
+### Step 1: Generate 500,000-Row Sample Spreadsheet
+Streams 500,000 deterministic customer records with all 15 spreadsheet columns (11 required, 4 optional):
+```bash
+cd backend
+php artisan make:sample-500k --count=500000
+```
+*Generation performance: 500,000 rows in ~100 seconds (4,996 rows/sec), file size 40.08 MB, peak generator memory: 26 MB.*
+
+### Step 2: Execute Import Benchmark & Verification
+Ingest the generated spreadsheet through the production `ProcessImportJob` engine and execute automated data integrity verification:
+```bash
+cd backend
+php artisan benchmark:run-500k --count=500000
+```
+*Pass `--cleanup` to automatically remove benchmark customer and import records after verification.*
+
+### Measured Results Summary
+* **Records Processed:** 500,000 records
+* **Processing Duration:** 723.62 seconds (~12.06 minutes)
+* **Processing Throughput:** 691.0 rows / second
+* **Peak Engine Memory:** 82.0 MB (measured total peak worker memory)
+* **Data Reconciliation:** 500,000 valid / 500,000 saved / 0 rejected / 0 duplicates
+* **Integrity Invariants:** All 8 automated integrity checks passed
+
+### Memory Dynamics Explained
+* **Zero-DOM Streaming:** OpenSpout reads spreadsheet rows sequentially directly from XML tokens without building an in-memory DOM tree. Reader memory remains small and bounded (~15–20 MB).
+* **In-File Duplicate Tracking:** To satisfy the requirement of detecting duplicate Customer IDs within the file, the worker maintains an in-memory hash map (`$seenFileCustomerIds[$customerId] = $rowNumber`).
+* **Memory Scaling:** Because of this tracking map, memory is not completely flat—it scales linearly with the number of unique Customer IDs in the file. For 500,000 records, the hash map accounts for an estimated ~35–45 MB.
+* **Total Worker Peak:** Across the entire 500,000-record benchmark, total peak worker memory reached **82.0 MB**, staying well within the standard 512 MB CLI memory limit.
+
+For full benchmark methodology, hardware specs, and throughput analysis, refer to [`docs/500K_BENCHMARK.md`](docs/500K_BENCHMARK.md).
+
+---
+
+## 11. Architecture & Security Invariants
+
+* **Streaming Ingestion:** OpenSpout 5 streams `.xlsx` files row-by-row, preventing workbook DOM memory bloat.
+* **Per-User Ownership Isolation:** All import history, statuses, error logs, and customer records are strictly scoped to the authenticated user. Cross-user access returns HTTP 403.
+* **Transactional Chunking:** Rows are buffered into configurable chunks (default 1,000 rows) and inserted in 500-record sub-batches within individual database transactions.
+* **Formula Injection Mitigation:** Streamed CSV error exports prefix formula trigger characters (`=`, `+`, `-`, `@`, `\t`, `\r`) with a single quote (`'`) to neutralize spreadsheet execution exploits.
+* **Credential Scrubbing:** Database credentials and internal server paths are scrubbed from error logs before database persistence or API output.
+* **Stale Worker Recovery:** The `php artisan import:recover-stale` command detects stuck imports caused by unexpected worker terminations and safely re-dispatches or marks them failed without duplicate records.
+
+For architectural design decisions and trade-offs, refer to [`docs/architecture.md`](docs/architecture.md).

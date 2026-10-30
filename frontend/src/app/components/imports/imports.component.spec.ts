@@ -137,4 +137,62 @@ describe('ImportsComponent', () => {
     expect(component.getStatusClass('Failed')).toBe('status-failed');
     expect(component.getStatusClass('Unknown')).toBe('status-default');
   });
+
+  it('should display started_at and completed_at timestamps in history table', () => {
+    const compiled = fixture.nativeElement as HTMLElement;
+    const historyRow = compiled.querySelector('.history-row');
+    const timestampCells = historyRow?.querySelectorAll('.timestamp-cell');
+    expect(timestampCells?.length).toBe(3); // created_at, started_at, completed_at
+    // started_at cell should have formatted time, not fallback dash
+    expect(timestampCells?.[1]?.textContent?.trim()).not.toBe('—');
+    // completed_at cell should have formatted time, not fallback dash
+    expect(timestampCells?.[2]?.textContent?.trim()).not.toBe('—');
+  });
+
+  it('should display fallback dash for null timestamps and duration', () => {
+    const mockWithNulls: PaginatedResponse<ImportItem> = {
+      current_page: 1,
+      data: [
+        {
+          id: 2,
+          filename: 'queued_batch.xlsx',
+          file_path: 'imports/uuid2.xlsx',
+          status: 'Queued',
+          total_rows: 100,
+          processed_rows: 0,
+          saved_rows: 0,
+          rejected_rows: 0,
+          started_at: null,
+          completed_at: null,
+          duration_seconds: null,
+          failure_reason: null,
+          created_at: '2026-10-29T12:10:00.000Z',
+          updated_at: '2026-10-29T12:10:00.000Z',
+        },
+      ],
+      from: 1,
+      last_page: 1,
+      per_page: 15,
+      to: 1,
+      total: 1,
+    };
+
+    component.importsData.set(mockWithNulls);
+    fixture.detectChanges();
+
+    const compiled = fixture.nativeElement as HTMLElement;
+    const historyRow = compiled.querySelector('.history-row');
+    const timestampCells = historyRow?.querySelectorAll('.timestamp-cell');
+    expect(timestampCells?.[1]?.textContent?.trim()).toBe('—');
+    expect(timestampCells?.[2]?.textContent?.trim()).toBe('—');
+    const durationCell = historyRow?.querySelector('.duration-cell');
+    expect(durationCell?.textContent?.trim()).toBe('—');
+  });
+
+  it('should display processing duration correctly when present', () => {
+    const compiled = fixture.nativeElement as HTMLElement;
+    const historyRow = compiled.querySelector('.history-row');
+    const durationCell = historyRow?.querySelector('.duration-cell');
+    expect(durationCell?.textContent?.trim()).toBe('5.2s');
+  });
 });

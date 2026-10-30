@@ -36,17 +36,19 @@
           <th>Spreadsheet File</th>
           <th style="width: 170px;">Status</th>
           <th class="text-right" style="width: 100px;">Total Rows</th>
-          <th class="text-right" style="width: 100px;">Saved</th>
-          <th class="text-right" style="width: 100px;">Rejected</th>
-          <th class="text-right" style="width: 110px;">Duration</th>
-          <th style="width: 180px;">Created</th>
+          <th class="text-right" style="width: 90px;">Saved</th>
+          <th class="text-right" style="width: 90px;">Rejected</th>
+          <th style="min-width: 160px;">Created At</th>
+          <th style="min-width: 160px;">Started At</th>
+          <th style="min-width: 160px;">Completed At</th>
+          <th class="text-right" style="width: 100px;">Duration</th>
           <th class="text-center" style="width: 130px;">Action</th>
         </tr>
       </thead>
       <tbody>
         @if (isLoadingHistory()) {
           <tr>
-            <td colspan="9" class="state-cell">
+            <td colspan="11" class="state-cell">
               <div class="spinner"></div>
               <span>Loading import records from server...</span>
             </td>
@@ -55,7 +57,7 @@
           @for (item of importsData()?.data; track item.id) {
             <tr class="history-row" (click)="openDetailModal(item.id)">
               <td class="font-mono text-muted">#{{ item.id }}</td>
-              <td class="font-semibold">{{ item.filename }}</td>
+              <td class="font-semibold filename-cell" [title]="item.filename">{{ item.filename }}</td>
               <td>
                 <span class="status-badge" [ngClass]="getStatusClass(item.status)">
                   {{ item.status }}
@@ -70,11 +72,17 @@
                   0
                 }
               </td>
-              <td class="text-right font-mono text-muted">
-                {{ item.duration_seconds !== null ? (item.duration_seconds + 's') : '-' }}
+              <td class="text-muted font-sm timestamp-cell">
+                {{ item.created_at ? (item.created_at | date:'medium') : '—' }}
               </td>
-              <td class="text-muted font-sm">
-                {{ item.created_at | date:'medium' }}
+              <td class="text-muted font-sm timestamp-cell">
+                {{ item.started_at ? (item.started_at | date:'medium') : '—' }}
+              </td>
+              <td class="text-muted font-sm timestamp-cell">
+                {{ item.completed_at ? (item.completed_at | date:'medium') : '—' }}
+              </td>
+              <td class="text-right font-mono text-muted duration-cell">
+                {{ item.duration_seconds !== null ? (item.duration_seconds + 's') : '—' }}
               </td>
               <td class="text-center" (click)="$event.stopPropagation()">
                 <button 
@@ -89,7 +97,7 @@
           }
         } @else {
           <tr>
-            <td colspan="9" class="state-cell empty-state">
+            <td colspan="11" class="state-cell empty-state">
               <span class="empty-icon">📁</span>
               <p class="empty-title">No spreadsheets imported yet.</p>
               <p class="empty-hint">Click <strong>Upload Spreadsheet</strong> above to start your first asynchronous import.</p>

@@ -176,7 +176,9 @@ class ImportProgressCalculationTest extends TestCase
         $this->assertFalse($progress['stages']['validation']['indeterminate']);
         $this->assertSame(0, $progress['stages']['validation']['total_rows']);
 
-        $this->assertSame(100.0, $progress['stages']['import']['percentage']);
+        // Stage 3: 0 eligible rows, 0 saved rows -> 0.0% saved, never claiming 100% saved
+        $this->assertSame('completed', $progress['stages']['import']['status']);
+        $this->assertSame(0.0, $progress['stages']['import']['percentage']);
         $this->assertFalse($progress['stages']['import']['indeterminate']);
         $this->assertSame(0, $progress['stages']['import']['saved_rows']);
         $this->assertSame(0, $progress['stages']['import']['eligible_rows']);
@@ -291,6 +293,179 @@ class ImportProgressCalculationTest extends TestCase
         $this->assertSame(40.0, $progress['stages']['validation']['percentage']);
         $this->assertSame('failed', $progress['stages']['import']['status']);
         $this->assertSame(0.0, $progress['stages']['import']['percentage']);
+        $this->assertFalse($progress['stages']['import']['indeterminate']);
+    }
+
+    /**
+     * Test 10: All 20 rows are duplicates, zero eligible, zero saved.
+     * Must not report 100% saved in stage 3.
+     */
+    public function test_all_twenty_rows_duplicates_zero_eligible_zero_saved(): void
+    {
+        $import = new Import([
+            'status' => Import::STATUS_COMPLETED_WITH_ERRORS,
+            'total_rows' => 20,
+            'processed_rows' => 20,
+            'validated_rows' => 20,
+            'valid_rows' => 0,
+            'invalid_rows' => 0,
+            'duplicate_rows' => 20,
+            'saved_rows' => 0,
+            'rejected_rows' => 20,
+        ]);
+
+        $progress = $this->controller->calculateProgress($import);
+
+        $this->assertTrue($progress['total_rows_known']);
+        $this->assertSame(100.0, $progress['progress_percentage']);
+
+        // Stage 1: Upload completed
+        $this->assertSame('completed', $progress['stages']['upload']['status']);
+        $this->assertSame(100.0, $progress['stages']['upload']['percentage']);
+
+        // Stage 2: Validation 100% completed
+        $this->assertSame('completed', $progress['stages']['validation']['status']);
+        $this->assertSame(100.0, $progress['stages']['validation']['percentage']);
+        $this->assertSame(20, $progress['stages']['validation']['checked_rows']);
+        $this->assertSame(0, $progress['stages']['validation']['valid_rows']);
+        $this->assertSame(20, $progress['stages']['validation']['duplicate_rows']);
+        $this->assertSame(0, $progress['stages']['validation']['invalid_rows']);
+
+        // Stage 3: Database import must accurately report 0% saved with 0 eligible rows
+        $this->assertSame('completed', $progress['stages']['import']['status']);
+        $this->assertSame(0.0, $progress['stages']['import']['percentage']);
+        $this->assertSame(0, $progress['stages']['import']['saved_rows']);
+        $this->assertSame(0, $progress['stages']['import']['eligible_rows']);
+        $this->assertFalse($progress['stages']['import']['indeterminate']);
+    }
+
+    /**
+     * Test 11: All 20 rows are invalid, zero eligible, zero saved.
+     */
+    public function test_all_twenty_rows_invalid_zero_eligible_zero_saved(): void
+    {
+        $import = new Import([
+            'status' => Import::STATUS_COMPLETED_WITH_ERRORS,
+            'total_rows' => 20,
+            'processed_rows' => 20,
+            'validated_rows' => 20,
+            'valid_rows' => 0,
+            'invalid_rows' => 20,
+            'duplicate_rows' => 0,
+            'saved_rows' => 0,
+            'rejected_rows' => 20,
+        ]);
+
+        $progress = $this->controller->calculateProgress($import);
+
+        $this->assertTrue($progress['total_rows_known']);
+        $this->assertSame(100.0, $progress['progress_percentage']);
+
+        // Stage 2: Validation 100% completed
+        $this->assertSame('completed', $progress['stages']['validation']['status']);
+        $this->assertSame(100.0, $progress['stages']['validation']['percentage']);
+        $this->assertSame(20, $progress['stages']['validation']['checked_rows']);
+        $this->assertSame(20, $progress['stages']['validation']['invalid_rows']);
+        $this->assertSame(0, $progress['stages']['validation']['valid_rows']);
+
+        // Stage 3: Database import must accurately report 0% saved
+        $this->assertSame('completed', $progress['stages']['import']['status']);
+        $this->assertSame(0.0, $progress['stages']['import']['percentage']);
+        $this->assertSame(0, $progress['stages']['import']['saved_rows']);
+        $this->assertSame(0, $progress['stages']['import']['eligible_rows']);
+        $this->assertFalse($progress['stages']['import']['indeterminate']);
+    }
+
+    /**
+     * Test 12: 20 eligible rows, 10 saved, import still processing.
+     */
+    public function test_twenty_eligible_rows_ten_saved_import_still_processing(): void
+    {
+        $import = new Import([
+            'status' => Import::STATUS_PROCESSING,
+            'total_rows' => 20,
+            'processed_rows' => 20,
+            'validated_rows' => 20,
+            'valid_rows' => 20,
+            'invalid_rows' => 0,
+            'duplicate_rows' => 0,
+            'saved_rows' => 10,
+            'rejected_rows' => 0,
+        ]);
+
+        $progress = $this->controller->calculateProgress($import);
+
+        $this->assertTrue($progress['total_rows_known']);
+        $this->assertSame(99.9, $progress['progress_percentage']);
+        $this->assertSame(99.9, $progress['stages']['validation']['percentage']);
+
+        // Stage 3: 10 / 20 = 50.0%
+        $this->assertSame('processing', $progress['stages']['import']['status']);
+        $this->assertSame(50.0, $progress['stages']['import']['percentage']);
+        $this->assertSame(10, $progress['stages']['import']['saved_rows']);
+        $this->assertSame(20, $progress['stages']['import']['eligible_rows']);
+        $this->assertFalse($progress['stages']['import']['indeterminate']);
+    }
+
+    /**
+     * Test 13: 20 eligible rows, all saved successfully.
+     */
+    public function test_twenty_eligible_rows_all_saved_successfully(): void
+    {
+        $import = new Import([
+            'status' => Import::STATUS_COMPLETED,
+            'total_rows' => 20,
+            'processed_rows' => 20,
+            'validated_rows' => 20,
+            'valid_rows' => 20,
+            'invalid_rows' => 0,
+            'duplicate_rows' => 0,
+            'saved_rows' => 20,
+            'rejected_rows' => 0,
+        ]);
+
+        $progress = $this->controller->calculateProgress($import);
+
+        $this->assertTrue($progress['total_rows_known']);
+        $this->assertSame(100.0, $progress['progress_percentage']);
+        $this->assertSame('completed', $progress['stages']['validation']['status']);
+        $this->assertSame(100.0, $progress['stages']['validation']['percentage']);
+
+        $this->assertSame('completed', $progress['stages']['import']['status']);
+        $this->assertSame(100.0, $progress['stages']['import']['percentage']);
+        $this->assertSame(20, $progress['stages']['import']['saved_rows']);
+        $this->assertSame(20, $progress['stages']['import']['eligible_rows']);
+        $this->assertFalse($progress['stages']['import']['indeterminate']);
+    }
+
+    /**
+     * Test 14: Partial save followed by failure.
+     */
+    public function test_partial_save_followed_by_failure(): void
+    {
+        $import = new Import([
+            'status' => Import::STATUS_FAILED,
+            'total_rows' => 20,
+            'processed_rows' => 20,
+            'validated_rows' => 20,
+            'valid_rows' => 20,
+            'invalid_rows' => 0,
+            'duplicate_rows' => 0,
+            'saved_rows' => 10,
+            'rejected_rows' => 0,
+        ]);
+
+        $progress = $this->controller->calculateProgress($import);
+
+        // Validation stage reflects failure
+        $this->assertSame('failed', $progress['stages']['validation']['status']);
+        $this->assertSame(100.0, $progress['stages']['validation']['percentage']);
+
+        // Stage 3 preserves actual persistence progress (10 / 20 = 50.0%) with failed status
+        $this->assertSame('failed', $progress['stages']['import']['status']);
+        $this->assertSame(50.0, $progress['stages']['import']['percentage']);
+        $this->assertSame(10, $progress['stages']['import']['saved_rows']);
+        $this->assertSame(20, $progress['stages']['import']['eligible_rows']);
         $this->assertFalse($progress['stages']['import']['indeterminate']);
     }
 }

@@ -92,3 +92,42 @@ export interface UploadResponse {
   status: ImportStatus;
   message: string;
 }
+
+export interface ImportedCustomer {
+  id: number;
+  customer_id: string;
+  first_name: string;
+  last_name: string;
+  email: string;
+  phone_number: string;
+  date_of_birth: string;
+  gender?: string | null;
+  profession: string;
+  company_name?: string | null;
+  country: string;
+  city: string;
+  address?: string | null;
+  social_media_url?: string | null;
+  registration_date: string;
+  status: string;
+  import_id: number;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface ImportedDataResponse {
+  data: ImportedCustomer[];
+  current_page: number;
+  last_page: number;
+  per_page: number;
+  total: number;
+  from: number | null;
+  to: number | null;
+  total_eligible_count: number;
+}
+
+export interface DeleteAllResponse {
+  success: boolean;
+  message: string;
+  deleted_count: number;
+}

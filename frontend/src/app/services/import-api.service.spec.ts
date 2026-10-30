@@ -196,4 +196,65 @@ describe('ImportApiService', () => {
     expect(req.request.responseType).toBe('blob');
     req.flush(fakeBlob);
   });
+
+  it('should retrieve paginated imported data with search query', () => {
+    const mockDataResponse = {
+      data: [
+        {
+          id: 1,
+          customer_id: 'CUST-001',
+          first_name: 'Alice',
+          last_name: 'Smith',
+          email: 'alice@example.com',
+          phone_number: '+1-555-0100',
+          date_of_birth: '1990-01-01',
+          profession: 'Developer',
+          country: 'USA',
+          city: 'Austin',
+          registration_date: '2023-01-01',
+          status: 'Active',
+          import_id: 3,
+          created_at: '2026-10-30T00:00:00Z',
+          updated_at: '2026-10-30T00:00:00Z',
+        },
+      ],
+      current_page: 1,
+      last_page: 1,
+      per_page: 15,
+      total: 1,
+      from: 1,
+      to: 1,
+      total_eligible_count: 1,
+    };
+
+    service.getImportedData(1, 15, 'Alice').subscribe((res) => {
+      expect(res.total).toBe(1);
+      expect(res.total_eligible_count).toBe(1);
+      expect(res.data[0].customer_id).toBe('CUST-001');
+    });
+
+    const req = httpTesting.expectOne(
+      `${service.baseUrl}/imported-data?page=1&per_page=15&search=Alice`
+    );
+    expect(req.request.method).toBe('GET');
+    req.flush(mockDataResponse);
+  });
+
+  it('should send delete request with confirmation phrase', () => {
+    const mockDeleteResponse = {
+      success: true,
+      message: 'Successfully deleted 20 imported records.',
+      deleted_count: 20,
+    };
+
+    service.deleteAllImportedData('DELETE ALL').subscribe((res) => {
+      expect(res.success).toBe(true);
+      expect(res.deleted_count).toBe(20);
+    });
+
+    const req = httpTesting.expectOne(`${service.baseUrl}/imported-data`);
+    expect(req.request.method).toBe('DELETE');
+    expect(req.request.body).toEqual({ confirmation: 'DELETE ALL' });
+    req.flush(mockDeleteResponse);
+  });
 });

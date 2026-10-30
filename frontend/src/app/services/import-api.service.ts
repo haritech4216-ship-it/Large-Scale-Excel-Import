@@ -2,7 +2,9 @@ import { Injectable, inject } from '@angular/core';
 import { HttpClient, HttpEvent, HttpParams } from '@angular/common/http';
 import { Observable } from 'rxjs';
 import {
+  DeleteAllResponse,
   ImportDetail,
+  ImportedDataResponse,
   ImportItem,
   ImportRowError,
   PaginatedResponse,
@@ -69,6 +71,30 @@ export class ImportApiService {
   downloadSampleTemplate(): Observable<Blob> {
     return this.http.get(`${this.baseUrl}/imports/sample-template`, {
       responseType: 'blob',
+    });
+  }
+
+  getImportedData(
+    page = 1,
+    perPage = 15,
+    search = ''
+  ): Observable<ImportedDataResponse> {
+    let params = new HttpParams()
+      .set('page', page.toString())
+      .set('per_page', perPage.toString());
+
+    if (search.trim() !== '') {
+      params = params.set('search', search.trim());
+    }
+
+    return this.http.get<ImportedDataResponse>(`${this.baseUrl}/imported-data`, {
+      params,
+    });
+  }
+
+  deleteAllImportedData(confirmation: string): Observable<DeleteAllResponse> {
+    return this.http.request<DeleteAllResponse>('delete', `${this.baseUrl}/imported-data`, {
+      body: { confirmation },
     });
   }
 }
