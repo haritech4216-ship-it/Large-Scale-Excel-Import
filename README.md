@@ -36,7 +36,7 @@ Ensure your environment meets the following requirements:
 * **PHP:** `^8.3` (tested with PHP `8.5`)
   * Required Extensions: `pdo_mysql`, `zip`, `mbstring`, `xml`, `filter`, `openssl`, `tokenizer`, `ctype`
 * **Composer:** Composer `2.x`
-* **Node.js:** Node.js `20.x`, `22.x`, or `24.x` LTS
+* **Node.js:** Node.js `^22.22.3` or `^24.x` LTS (Required by Angular 22 CLI; e.g. `nvm use 24`)
 * **npm:** npm `10.x` or `11.x`
 * **Database:** MySQL Server 8.0+ or 8.4 LTS (InnoDB with `utf8mb4`)
 
@@ -79,7 +79,7 @@ import/
 ### Step 1: Clone Repository
 ```bash
 git clone <repository-url>
-cd import
+cd Large-Scale-Excel-Import
 ```
 
 ### Step 2: Install Backend Dependencies
@@ -114,6 +114,7 @@ QUEUE_CONNECTION=database
 In a separate terminal, navigate to the `frontend/` directory and install npm packages:
 ```bash
 cd frontend
+nvm use 24    # Ensure Node.js >= 22.22.3 or 24.x is active for Angular 22
 npm install
 ```
 
@@ -189,10 +190,14 @@ cd backend
 php artisan queue:work --timeout=3600 --tries=3
 ```
 
+> [!IMPORTANT]
+> **Queue Worker is Mandatory:** All spreadsheet processing and database imports run asynchronously in the background. If the queue worker is not running, uploaded spreadsheets will remain in **Queued** status.
+
 ### 3. Angular Frontend
 In a third terminal, start the Angular development server:
 ```bash
 cd frontend
+nvm use 24    # Ensure Node >= 22.22.3 is active
 npm start
 ```
 Open your browser at `http://localhost:4200` and sign in using the seeded credentials (`admin@example.com` / `Password123!`).
@@ -202,22 +207,70 @@ Open your browser at `http://localhost:4200` and sign in using the seeded creden
 ## 8. Running Tests
 
 ### Backend Test Suite (PHPUnit)
-The backend test suite covers authentication, authorization, streaming ingestion, duplicate race conditions, queue retries, and stale job recovery:
+The backend test suite covers authentication, authorization, streaming ingestion, duplicate race conditions, queue retries, and stale job recovery (92 tests total).
+
+#### Step 1: Set Up Test Database & User
+Feature tests require an isolated test database (`excel_import_test_db`) as configured in `phpunit.xml` to prevent altering development data.
+
+Open your MySQL / MariaDB shell:
+```bash
+sudo mysql    # or: mysql -u root -p
+```
+Create the test database and grant access:
+```sql
+CREATE DATABASE IF NOT EXISTS excel_import_test_db
+  CHARACTER SET utf8mb4
+  COLLATE utf8mb4_unicode_ci;
+
+CREATE USER IF NOT EXISTS 'excel_test_user'@'localhost' IDENTIFIED BY '';
+GRANT ALL PRIVILEGES ON excel_import_test_db.* TO 'excel_test_user'@'localhost';
+FLUSH PRIVILEGES;
+EXIT;
+```
+
+> **Tip (If MySQL enforces a password policy):**
+> If your MySQL installation rejects blank passwords, specify a password (e.g. `IDENTIFIED BY 'TestPassword123!'`) and add `<env name="DB_PASSWORD" value="TestPassword123!"/>` in `backend/phpunit.xml`.
+>
+> **Alternative (Use existing database credentials):**
+> If you prefer not creating `excel_test_user`, simply update the `<php>` block in `backend/phpunit.xml` with your existing database credentials:
+> ```xml
+> <env name="DB_DATABASE" value="excel_import_test_db"/>
+> <env name="DB_USERNAME" value="your_mysql_username"/>
+> <env name="DB_PASSWORD" value="your_mysql_password"/>
+> ```
+
+#### Step 2: Run Migrations on Test Database
+Create all required tables in the test database:
+```bash
+cd backend
+php artisan migrate --env=testing
+```
+
+#### Step 3: Execute Test Suite
+Run the entire backend test suite:
 ```bash
 cd backend
 php artisan test
 ```
-*Snapshot: 88 passed (495 assertions).*
 
-> **Dedicated Test Database (Optional):** To isolate tests from development data, set `DB_DATABASE=excel_import_test_db` in `backend/.env.testing` and run `php artisan migrate --env=testing`. Subsequent `php artisan test` runs will automatically target the test database.
+> **Fast Unit Tests (No Database Required):**
+> To run only the isolated unit tests (validation rules, header parsing, progress calculations) without touching MySQL:
+> ```bash
+> cd backend
+> ./vendor/bin/phpunit tests/Unit
+> ```
+
+---
 
 ### Frontend Test Suite (Vitest)
-The frontend test suite covers components, services, route guards, interceptors, and modal progress logic:
+The frontend test suite covers standalone components, signals, services, route guards, interceptors, and modal progress logic (83 tests across 9 test files).
+
+> **Prerequisite:** Angular 22 requires Node.js `>= 22.22.3` or `>= 24.x`. If using NVM, ensure `nvm use 24` is active.
+
 ```bash
 cd frontend
 npm test -- --watch=false
 ```
-*Snapshot: 9 test files passed, 83 passed.*
 
 ### Frontend Production Build
 To verify the production compilation:
@@ -262,7 +315,7 @@ php artisan make:sample-500k --count=500000
 Ingest the generated spreadsheet through the production `ProcessImportJob` engine and execute automated data integrity verification:
 ```bash
 cd backend
-php artisan benchmark:run-500k --count=500000
+php -d memory_limit=512M artisan benchmark:run-500k --count=500000
 ```
 *Pass `--cleanup` to automatically remove benchmark customer and import records after verification.*
 
