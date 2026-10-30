@@ -256,7 +256,7 @@ Streams 500,000 deterministic customer records with all 15 spreadsheet columns (
 cd backend
 php artisan make:sample-500k --count=500000
 ```
-*Generation performance: 500,000 rows in ~100 seconds (4,996 rows/sec), file size 40.08 MB, peak generator memory: 26 MB.*
+*Generation performance: 500,000 rows in 40.19 seconds (12,441 rows/sec), file size 40.08 MB, peak generator memory: 30 MB.*
 
 ### Step 2: Execute Import Benchmark & Verification
 Ingest the generated spreadsheet through the production `ProcessImportJob` engine and execute automated data integrity verification:
@@ -268,8 +268,8 @@ php artisan benchmark:run-500k --count=500000
 
 ### Measured Results Summary
 * **Records Processed:** 500,000 records
-* **Processing Duration:** 723.62 seconds (~12.06 minutes)
-* **Processing Throughput:** 691.0 rows / second
+* **Processing Duration:** 145.17 seconds (~2.42 minutes)
+* **Processing Throughput:** 3,444.2 rows / second
 * **Peak Engine Memory:** 82.0 MB (measured total peak worker memory)
 * **Data Reconciliation:** 500,000 valid / 500,000 saved / 0 rejected / 0 duplicates
 * **Integrity Invariants:** All 8 automated integrity checks passed

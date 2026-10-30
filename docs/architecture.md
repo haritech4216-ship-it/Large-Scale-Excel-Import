@@ -573,20 +573,20 @@ The system guarantees the following invariants across all operations:
 
 ## 15. Performance & Scalability Characteristics
 
-Actual performance measured during official 500,000-row benchmark execution (Intel Pentium 3825U @ 1.90GHz, 4 vCPUs, 7.67 GB RAM, MySQL 8.0 on Ubuntu Linux):
+Actual performance measured during official 500,000-row benchmark execution (Intel(R) Core(TM) i5-9600KF CPU @ 3.70GHz, 15.55 GB RAM, MariaDB 10.6 / MySQL on Linux):
 
 | Phase | Metric | Measured Value | Notes |
 | :--- | :--- | :--- | :--- |
-| **Generator** | **500,000 Rows Generated** | **100.08 seconds** | Continuous streaming (~4,996 rows/sec) |
-| **Generator** | **Generated File Size** | **40.08 MB** | Compressed `.xlsx` package |
-| **Generator** | **Peak Memory** | **26.0 MB** | Flat memory profile |
-| **Ingestion** | **500,000 Rows Ingested** | **723.62 seconds** (12.06 min) | Ingested into MySQL InnoDB |
-| **Ingestion** | **Throughput** | **691.0 rows / second** | Includes validation, duplicate checks & DB writes |
+| **Generator** | **500,000 Rows Generated** | **40.19 seconds** | Continuous streaming (~12,441 rows/sec) |
+| **Generator** | **Generated File Size** | **40.08 MB** | Compressed `.xlsx` package (42,028,963 bytes) |
+| **Generator** | **Peak Memory** | **30.0 MB** | Flat memory profile |
+| **Ingestion** | **500,000 Rows Ingested** | **145.17 seconds** (2.42 min) | Ingested into MariaDB/MySQL InnoDB |
+| **Ingestion** | **Throughput** | **3,444.2 rows / second** | Includes validation, duplicate checks & DB writes |
 | **Ingestion** | **Engine Peak Memory** | **82.0 MB** | Max memory used (16% of 512MB limit) |
 | **Integrity** | **Data Reconciliation** | **500,000 / 500,000** | 100% saved, 0 rejected, 0 lost records |
 | **Integrity** | **Invariants Passed** | **8 / 8 Checks** | All data integrity invariants confirmed |
 
-For detailed benchmark methodology, hardware specs, and analysis, see [`docs/500K_BENCHMARK.md`](file:///var/www/html/import/docs/500K_BENCHMARK.md).
+For detailed benchmark methodology, hardware specs, and analysis, see [`docs/500K_BENCHMARK.md`](500K_BENCHMARK.md).
 
 ---
 

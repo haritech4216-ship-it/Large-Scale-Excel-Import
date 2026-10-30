@@ -14,21 +14,21 @@ The objective is to demonstrate that:
 
 ## 2. Hardware, Software & Infrastructure Environment
 
-All benchmark runs were executed on the local host environment with the following specifications:
+All benchmark runs were executed on the host environment with the following specifications:
 
 | Component | Specification | Details / Notes |
 | :--- | :--- | :--- |
-| **Operating System** | Linux 6.8.0-78-generic | Ubuntu x86_64 (`PREEMPT_DYNAMIC`) |
-| **Processor (CPU)** | Intel(R) Pentium(R) 3825U @ 1.90GHz | 4 physical/logical vCPUs |
-| **System Memory (RAM)**| 7.67 GB Total | ~2.3 GB Available, 8.0 GB Swap |
-| **Storage / Disk** | Standard SSD / Ext4 | Available: 5.8 GB |
-| **PHP Runtime** | PHP 8.5.12 (CLI) (NTS) | OPcache enabled, Zend Engine v4.5.12 |
+| **Operating System** | Linux 6.8.0-138-generic | Ubuntu x86_64 (`PREEMPT_DYNAMIC`) |
+| **Processor (CPU)** | Intel(R) Core(TM) i5-9600KF CPU @ 3.70GHz | 6 Cores @ 3.70GHz (up to 4.60GHz turbo) |
+| **System Memory (RAM)**| 15.55 GB Total | High-speed DDR4 |
+| **Storage / Disk** | Standard SSD / Ext4 | Local NVMe/SSD |
+| **PHP Runtime** | PHP 8.5.12 (CLI) | OPcache enabled, Zend Engine v4.5.12 |
 | **Memory Limit** | `memory_limit = 512M` | Standard CLI limit |
-| **Laravel Framework** | Laravel 13.39.0 | Application root at `/var/www/html/import/backend` |
-| **Database Engine** | Oracle MySQL 8.0.41-cluster | Community Server on `127.0.0.1:3306` (`InnoDB`) |
+| **Laravel Framework** | Laravel 13.39.0 | Application root |
+| **Database Engine** | MariaDB 10.6.23 / MySQL | `10.6.23-MariaDB-0ubuntu0.22.04.1` (`InnoDB`) |
 | **Database Driver** | PDO MySQL (`pdo_mysql`) | UTF-8 (`utf8mb4_unicode_ci`) |
 | **Queue Connection** | Database Driver (`jobs` table) | Synchronous / Worker batching |
-| **Excel Parser** | OpenSpout 5.13.0 | Zero-DOM streaming XLSX reader / writer |
+| **Excel Library** | OpenSpout 5.13.0 | Zero-DOM streaming XLSX reader / writer |
 
 ---
 
@@ -70,26 +70,26 @@ php8.5 artisan benchmark:run-500k \
 
 ## 5. Actual Measured Benchmark Results
 
-The following metrics were measured during the 500,000-row benchmark run:
+The following metrics were measured during the official 500,000-row benchmark run on the Intel(R) Core(TM) i5-9600KF system:
 
 ### A. Generator Phase (`make:sample-500k`)
 
 | Metric | Measured Value | Notes |
 | :--- | :--- | :--- |
 | **Target Rows Generated** | **500,000** data rows (+1 header row) | Exactly 500,001 total spreadsheet rows |
-| **File Generation Time** | **100.08 seconds** (1.67 minutes) | Constant-speed streaming |
-| **Generation Throughput** | **4,996 rows / second** | Continuous row streaming |
-| **Generated File Size** | **40.08 MB** (42,028,965 bytes) | Compressed OpenSpout XLSX package |
-| **Peak Memory (Generator)**| **26.0 MB** | Flat memory curve throughout full run |
+| **File Generation Time** | **40.19 seconds** | Continuous streaming (~12,441 rows/sec) |
+| **Generation Throughput** | **12,441 rows / second** | Continuous OpenSpout row streaming |
+| **Generated File Size** | **40.08 MB** (42,028,963 bytes) | Compressed OpenSpout XLSX package |
+| **Peak Memory (Generator)**| **30.0 MB** | Flat memory curve throughout full run |
 
 ### B. Ingestion & Import Phase (`ProcessImportJob` / `benchmark:run-500k`)
 
 | Metric | Measured Value | Notes |
 | :--- | :--- | :--- |
 | **Total Evaluated Rows** | **500,000** records | Pre-detected via XML package dimensions |
-| **Import Processing Time** | **723.62 seconds** (12.06 minutes) | Ingested into Oracle MySQL 8.0 |
-| **Recorded Import Duration**| **724.13 seconds** | Stored in `imports.duration_seconds` column |
-| **Processing Throughput** | **691.0 rows / second** | Includes validation, duplicate check & DB writes |
+| **Import Processing Time** | **145.17 seconds** (2.42 minutes) | Ingested into MariaDB/MySQL InnoDB |
+| **Recorded Import Duration**| **145.17 seconds** | Stored in `imports.duration_seconds` column |
+| **Processing Throughput** | **3,444.2 rows / second** | Includes validation, duplicate check & DB writes |
 | **Peak Memory (Worker/Engine)**| **82.0 MB** | Max memory across 500,000 records (limit: 512MB) |
 | **Total Valid Rows** | **500,000** (100.0%) | Verified by `CustomerRowValidator` |
 | **Successfully Inserted Rows**| **500,000** (100.0%) | Persisted to `customers` table |
@@ -108,26 +108,24 @@ Automated integrity verification was executed immediately upon import completion
 | **1** | **Generated Input Count** | 500,000 rows | 500,000 rows | **PASSED** |
 | **2** | **Processed Rows Reconciled** | 500,000 rows | 500,000 rows | **PASSED** |
 | **3** | **Saved + Rejected = Processed** | 500,000 rows | 500,000 rows (`500,000 + 0 = 500,000`) | **PASSED** |
-| **4** | **DB Customer Rows Count** | 500,000 rows | 500,000 rows linked to `import_id` 11 | **PASSED** |
+| **4** | **DB Customer Rows Count** | 500,000 rows | 500,000 rows linked to `import_id` 3 | **PASSED** |
 | **5** | **Terminal Import Status** | `Completed` | `Completed` | **PASSED** |
 | **6** | **Chunks Completed & Idempotent** | 500 completed (0 duplicated) | 500 completed / 500 total | **PASSED** |
 | **7** | **Zero Duplicate Chunks** | 0 duplicates | 0 duplicate chunks | **PASSED** |
-| **8** | **Pre-existing Data Untouched** | 20 pre-existing records preserved | 20 records verified intact | **PASSED** |
+| **8** | **Pre-existing Data Untouched** | 495,156 records preserved | Verified Intact | **PASSED** |
 
 ### Database Row Reconciliation
-* **Total customers in database:** `500,020`
-  * Pre-existing sample customers (`CUST-1001` through `CUST-1020`): Exactly `20` (unchanged).
+* **Total customers in database:** `995,156`
+  * Pre-existing customer records: Exactly `495,156` (verified intact and untouched).
   * Benchmark customers (`BENCH-000001` through `BENCH-500000`): Exactly `500,000`.
 * **Total chunks created:** `500` chunks (chunk 1 to 500, all marked `status = 'completed'`).
-* **Parent Import Record (#11):**
+* **Parent Import Record (#3):**
   * `status`: `Completed`
   * `total_rows`: `500000`
   * `processed_rows`: `500000`
   * `saved_rows`: `500000`
   * `rejected_rows`: `0`
-  * `started_at`: `2026-10-29 22:57:26`
-  * `completed_at`: `2026-10-29 23:09:30`
-  * `duration_seconds`: `724.13`
+  * `duration_seconds`: `145.17`
 
 ---
 
@@ -153,9 +151,9 @@ Memory (MB)
    Peak memory was measured at **82.0 MB**, representing only **16.0%** of the standard `512M` PHP CLI memory limit.
 
 ### Throughput & Bottleneck Analysis
-* **Throughput:** Sustained average of **691.0 rows/second** (~41,460 rows/minute) on a dual-core mobile processor (Intel Pentium 3825U @ 1.90GHz).
-* **Primary Bottleneck:** MySQL InnoDB disk I/O for `Customer::insert()` (two 500-row bulk INSERT queries per chunk) and foreign key / index updates on `customers_customer_id_unique`.
-* **CPU Bottleneck:** Single-core CPU utilization on row-level validation (regex checking, date parsing, email verification) and XML stream decompression.
+* **Throughput:** Sustained average of **3,444.2 rows/second** (~206,652 rows/minute) on the 6-core Intel(R) Core(TM) i5-9600KF CPU @ 3.70GHz.
+* **Database Ingestion:** Executed across 500 sequential chunks (1,000 rows/chunk, two 500-row bulk INSERT queries per chunk) in 145.17 seconds (2.42 minutes).
+* **Generation Speed:** 500,000 records generated in 40.19 seconds (12,441 rows/second).
 
 ---
 
