@@ -164,14 +164,23 @@ php artisan db:seed
 Running the application locally requires three processes: the backend API server, the Laravel queue worker, and the Angular frontend.
 
 ### 1. Backend API Server
-Start the Laravel development server. Pass upload configuration directives to accommodate large files:
+Start the PHP development server directly with runtime upload directives to support large spreadsheets (up to 100 MB) across all operating systems without modifying system `php.ini` files:
+
+#### Linux / macOS:
 ```bash
-cd backend
-php -d upload_max_filesize=128M -d post_max_size=128M -d memory_limit=512M artisan serve --port=8000
+cd backend/public
+php -d upload_max_filesize=128M -d post_max_size=128M -d memory_limit=512M -S 127.0.0.1:8000 ../vendor/laravel/framework/src/Illuminate/Foundation/resources/server.php
 ```
+
+#### Windows (Command Prompt / PowerShell):
+```powershell
+cd backend\public
+php -d upload_max_filesize=128M -d post_max_size=128M -d memory_limit=512M -S 127.0.0.1:8000 ..\vendor\laravel\framework\src\Illuminate\Foundation\resources\server.php
+```
+
 The REST API will be available at `http://127.0.0.1:8000/api`.
 
-> **Production Note:** When serving behind Nginx, Apache, or PHP-FPM, align web server directives accordingly (`client_max_body_size 128M;`, `upload_max_filesize = 128M`, and `post_max_size = 128M`).
+> **Alternative (System-wide PHP configuration):** If you prefer using standard `php artisan serve --port=8000`, set `upload_max_filesize = 128M` and `post_max_size = 128M` directly in your system's `php.ini`. When serving behind Nginx, Apache, or PHP-FPM, align web server directives accordingly (`client_max_body_size 128M;`, `upload_max_filesize = 128M`, and `post_max_size = 128M`).
 
 ### 2. Laravel Queue Worker
 In a second terminal, start the queue worker to process asynchronous spreadsheet imports:
